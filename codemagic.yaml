@@ -1,0 +1,46 @@
+workflows:
+  ios-testflight:
+    name: Target Auto Spa iOS
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Codemagic Target Auto Spa
+    environment:
+      xcode: latest
+      node: 20
+      vars:
+        BUNDLE_ID: "br.com.lumno.targetautospa"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: br.com.lumno.targetautospa
+    scripts:
+      - name: Instalar Rust e alvos do iPhone
+        script: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl https://sh.rustup.rs -sSf | sh -s -- -y
+          fi
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $CM_ENV
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup target add aarch64-apple-ios
+      - name: Instalar dependencias do projeto
+        script: |
+          npm install
+      - name: Definir numero do build
+        script: |
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.iOS=c.bundle.iOS||{};c.bundle.iOS.bundleVersion=String(process.env.BUILD_NUMBER||1);fs.writeFileSync(p,JSON.stringify(c,null,2));"
+      - name: Gerar o projeto iOS
+        script: |
+          brew install xcodegen || true
+          npm run tauri ios init -- --ci
+      - name: Construir o app iOS
+        script: |
+          export IOS_CERTIFICATE="$CM_CERTIFICATE"
+          export IOS_CERTIFICATE_PASSWORD="$CM_CERTIFICATE_PASSWORD"
+          export IOS_MOBILE_PROVISION="$CM_PROVISIONING_PROFILE"
+          npm run tauri ios build -- --export-method app-store-connect
+    artifacts:
+      - src-tauri/gen/apple/build/**/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
