@@ -1,10 +1,28 @@
-.DS_Store
-node_modules
-/build
-/.svelte-kit
-/package
+# Dependências e builds
+node_modules/
+build/
+.svelte-kit/
+dist/
+.vercel/
+.output/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Chaves e segredos (nunca enviar)
 .env
 .env.*
-!.env.example
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+
+# Sistema e editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
