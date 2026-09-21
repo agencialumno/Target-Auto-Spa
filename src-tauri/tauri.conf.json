@@ -32,7 +32,8 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "developmentTeam": "KH97Q8M556"
+      "developmentTeam": "KH97Q8M556",
+      "minimumSystemVersion": "15.0"
     }
   }
 }
