@@ -11,8 +11,10 @@ workflows:
       vars:
         BUNDLE_ID: "br.com.lumno.targetautospa"
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: br.com.lumno.targetautospa
+        provisioning_profiles:
+          - Target Auto Spa App Store
+        certificates:
+          - target-distribution
     scripts:
       - name: Instalar Rust e alvos do iPhone
         script: |
