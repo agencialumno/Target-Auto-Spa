@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Usamos a câmera para registrar as fotos do checklist do serviço no seu veículo.</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Usamos suas fotos apenas para anexar imagens ao checklist do serviço.</string>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+</dict>
+</plist>

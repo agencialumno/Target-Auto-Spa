@@ -1,0 +1,136 @@
+:root {
+  /* Cores da identidade visual */
+  --navy-900: #1b232e;
+  --navy-700: #34425e;
+  --gold-100: #fff1b0;
+  --gold-500: #d9b45a;
+  --teal-700: #2b5a75;
+  --white: #ffffff;
+  --graphite: #2d2d2d;
+  --silver: #c9ced6;
+
+  /* Cores da folha clara (estilo da referência) */
+  --folha: #ffffff;
+  --card: #f3f5f8;
+  --card-borda: #e6e9ef;
+  --texto: #1b232e;
+  --texto-suave: #6b7686;
+
+  /* Fonte única, sem serifa */
+  --font: 'Plus Jakarta Sans Variable', system-ui, -apple-system, 'Segoe UI',
+    Helvetica, Arial, sans-serif;
+
+  /* Formas */
+  --raio: 16px;
+  --raio-grande: 28px;
+  --espaco: 16px;
+
+  /* Áreas seguras do iPhone (notch e barra inferior) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  background: var(--navy-900);
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+img,
+svg {
+  max-width: 100%;
+  display: block;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  overflow-wrap: break-word;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+}
+
+/* Botão principal (dourado) */
+.btn-primario {
+  background: var(--gold-500);
+  color: var(--navy-900);
+  font-weight: 700;
+  padding: 16px 20px;
+  border-radius: var(--raio);
+  width: 100%;
+  font-size: 1rem;
+}
+
+/* Botão secundário (contorno) */
+.btn-secundario {
+  background: transparent;
+  color: var(--texto);
+  border: 1px solid var(--card-borda);
+  font-weight: 600;
+  padding: 16px 20px;
+  border-radius: var(--raio);
+  width: 100%;
+  font-size: 1rem;
+}
+
+.btn-primario:active,
+.btn-secundario:active {
+  opacity: 0.85;
+}
+
+/* Folha branca de cantos arredondados que sobe por baixo do cabeçalho */
+.folha {
+  width: 100%;
+  background: var(--folha);
+  color: var(--texto);
+  border-radius: var(--raio-grande) var(--raio-grande) 0 0;
+  padding: 12px 20px calc(24px + var(--safe-bottom));
+}
+
+.folha-alca {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--card-borda);
+  margin: 0 auto 20px;
+}
+
+/* Card padrão claro */
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-borda);
+  border-radius: var(--raio);
+}

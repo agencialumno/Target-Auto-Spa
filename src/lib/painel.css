@@ -1,0 +1,88 @@
+.pagina {
+  width: 100%;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background: linear-gradient(160deg, var(--navy-900) 0%, var(--navy-700) 100%);
+}
+
+.pagina .folha {
+  flex: 1;
+}
+
+.cab {
+  padding: calc(16px + var(--safe-top)) 20px 26px;
+  color: var(--white);
+}
+
+.cab-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.cab h1 {
+  font-size: 1.7rem;
+  max-width: 320px;
+}
+
+.cab h1 em {
+  font-style: normal;
+  color: var(--gold-500);
+}
+
+.cab p {
+  margin-top: 6px;
+  color: var(--silver);
+  font-size: 0.9rem;
+}
+
+.btn-voltar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--white);
+}
+
+.secao-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 4px 0 12px;
+}
+
+.secao-topo h2 {
+  font-size: 1.1rem;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 16px;
+  scrollbar-width: none;
+}
+
+.chip {
+  flex: none;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--card-borda);
+  color: var(--texto);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chip.on {
+  background: var(--navy-900);
+  border-color: var(--navy-900);
+  color: var(--white);
+}
