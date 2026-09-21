@@ -36,9 +36,35 @@ workflows:
           npm run tauri ios init -- --ci
       - name: Construir o app iOS
         script: |
-          export IOS_CERTIFICATE="$CM_CERTIFICATE"
-          export IOS_CERTIFICATE_PASSWORD="$CM_CERTIFICATE_PASSWORD"
-          export IOS_MOBILE_PROVISION="$CM_PROVISIONING_PROFILE"
+          export PATH="$HOME/.cargo/bin:$PATH"
+
+          echo "CM_CERTIFICATE definido: $([ -n "$CM_CERTIFICATE" ] && echo sim || echo nao)"
+          echo "CM_CERTIFICATE_PASSWORD definido: $([ -n "$CM_CERTIFICATE_PASSWORD" ] && echo sim || echo nao)"
+          echo "CM_PROVISIONING_PROFILE definido: $([ -n "$CM_PROVISIONING_PROFILE" ] && echo sim || echo nao)"
+          echo "Perfis instalados:"
+          ls "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          echo "Identidades de assinatura:"
+          security find-identity -v -p codesigning || true
+
+          # Certificado
+          if [ -n "$CM_CERTIFICATE" ]; then
+            export IOS_CERTIFICATE="$CM_CERTIFICATE"
+            export IOS_CERTIFICATE_PASSWORD="$CM_CERTIFICATE_PASSWORD"
+          else
+            SENHA_TEMP="temp-$(date +%s)"
+            security export -t identities -f pkcs12 -P "$SENHA_TEMP" -o /tmp/cert.p12
+            export IOS_CERTIFICATE="$(base64 -i /tmp/cert.p12 | tr -d '\n')"
+            export IOS_CERTIFICATE_PASSWORD="$SENHA_TEMP"
+          fi
+
+          # Perfil de provisionamento
+          if [ -n "$CM_PROVISIONING_PROFILE" ]; then
+            export IOS_MOBILE_PROVISION="$CM_PROVISIONING_PROFILE"
+          else
+            PERFIL="$(ls "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision | head -1)"
+            export IOS_MOBILE_PROVISION="$(base64 -i "$PERFIL" | tr -d '\n')"
+          fi
+
           npm run tauri ios build -- --export-method app-store-connect
     artifacts:
       - src-tauri/gen/apple/build/**/*.ipa
