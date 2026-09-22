@@ -69,6 +69,17 @@
             <Icone nome="chevron" tamanho={20} />
         </a>
 
+        <a class="banner-residencial" href="/cliente/residencial">
+            <span class="banner-icone"><Icone nome="home" tamanho={26} /></span>
+            <span class="banner-textos">
+                <strong>Novo! Serviços para o seu lar</strong>
+                <small
+                    >Estofados, impermeabilização e insulfilm residencial</small
+                >
+            </span>
+            <Icone nome="chevron" tamanho={20} />
+        </a>
+
         <a class="nivel" href="/cliente/perfil">
             <div class="nivel-topo">
                 <span>Seu nível</span>
@@ -282,5 +293,43 @@
         font-weight: 600;
         line-height: 1.25;
         color: var(--teal-700);
+    }
+
+    .banner-residencial {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        margin-bottom: 20px;
+        border-radius: var(--raio);
+        background: linear-gradient(135deg, var(--gold-500), #f0cf7a);
+        color: var(--navy-900);
+    }
+
+    .banner-icone {
+        flex: none;
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: rgba(27, 35, 46, 0.15);
+    }
+
+    .banner-textos {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.3;
+    }
+
+    .banner-textos strong {
+        font-size: 0.95rem;
+    }
+
+    .banner-textos small {
+        font-size: 0.78rem;
+        opacity: 0.85;
     }
 </style>

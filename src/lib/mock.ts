@@ -649,3 +649,58 @@ export const avaliacoes = [
 
 export const brl = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// ---- RESIDENCIAL (Home Spa) — sem preço/duração definidos ainda ----
+export type ServicoResidencial = {
+  id: string;
+  codigo: string;
+  nome: string;
+  descricao: string;
+  icone: string;
+};
+
+export const servicosResidenciais: ServicoResidencial[] = [
+  {
+    id: "eco34",
+    codigo: "ECO34",
+    nome: "Renovação de Estofados",
+    descricao: "Limpeza premium que devolve o aspecto de novo aos estofados.",
+    icone: "sparkle",
+  },
+  {
+    id: "eco35",
+    codigo: "ECO35",
+    nome: "Higienização Profunda de Estofados",
+    descricao: "Remoção de fungos e bactérias dos estofados.",
+    icone: "leaf",
+  },
+  {
+    id: "eco36",
+    codigo: "ECO36",
+    nome: "Impermeabilização de Estofados",
+    descricao: "Proteção contra líquidos e manchas.",
+    icone: "shield",
+  },
+  {
+    id: "eco37",
+    codigo: "ECO37",
+    nome: "Tratamento Premium",
+    descricao:
+      "Renovação + higienização + impermeabilização, tudo em um pacote.",
+    icone: "star",
+  },
+  {
+    id: "eco38",
+    codigo: "ECO38",
+    nome: "Insulfilm Poliéster Residencial",
+    descricao: "Instalação de insulfilm poliéster em janelas e vidros.",
+    icone: "layers",
+  },
+  {
+    id: "eco39",
+    codigo: "ECO39",
+    nome: "Insulfilm Nano Cerâmica Premium",
+    descricao: "Retenção de 99% dos raios UVA e UVB.",
+    icone: "layers",
+  },
+];
