@@ -1,205 +1,651 @@
 export const BUFFER_MIN = 15;
 
-export type Categoria = 'lavagem' | 'estetica' | 'avulso';
+export type Categoria =
+  "lavagem" | "estetica" | "protecao" | "higienizacao" | "insulfilm";
 
 export type Servico = {
   id: string;
+  codigo: string; // TMO interno (ECO01...) - referência interna, não aparece para o cliente
   nome: string;
   descricao: string;
   categoria: Categoria;
-  duracao: number; // minutos de execução
-  preco: number; // valores de exemplo, ajuste aqui
-  avulso: boolean; // true = agenda separada, profissional externo
-  oculto?: boolean; // só aparece como sugestão (upsell)
+  duracao: number; // minutos - ESTIMATIVA, confirmar com a operação
+  preco: number;
+  avulso: boolean; // agenda separada (insulfilm, profissional externo)
+  oculto?: boolean; // só aparece como sugestão de upsell
   semDesconto?: boolean; // combos não recebem desconto extra
   garantia?: string;
   inclui: string[];
   icone: string;
-  video: string | null; // coloque a URL do vídeo quando gravarem
+  video: string | null;
 };
 
 export const servicos: Servico[] = [
+  // ---- LAVAGEM ----
   {
-    id: 'lavagem-secagem',
-    nome: 'Lavagem + secagem',
-    descricao: 'Lavagem externa completa com secagem manual.',
-    categoria: 'lavagem',
+    id: "eco01",
+    codigo: "ECO01",
+    nome: "Banho Básico",
+    descricao: "Lavagem externa e secagem, sem aplicação de produtos.",
+    categoria: "lavagem",
     duracao: 30,
-    preco: 45,
+    preco: 65,
     avulso: false,
     inclui: [
-      'Lavagem externa completa',
-      'Secagem manual com microfibra',
-      'Produtos biodegradáveis, sem soda cáustica'
+      "Lavagem externa completa",
+      "Secagem manual com microfibra",
+      "Produtos biodegradáveis, sem soda cáustica",
     ],
-    icone: 'drop',
-    video: null
+    icone: "drop",
+    video: null,
   },
   {
-    id: 'lavagem-secagem-aspiracao',
-    nome: 'Lavagem + secagem + aspiração',
-    descricao: 'Lavagem completa por fora e aspiração por dentro.',
-    categoria: 'lavagem',
-    duracao: 60,
+    id: "eco02",
+    codigo: "ECO02",
+    nome: "Banho",
+    descricao:
+      "Lavagem, secagem, aspiração e aplicação de produtos específicos.",
+    categoria: "lavagem",
+    duracao: 45,
     preco: 90,
     avulso: false,
     inclui: [
-      'Lavagem externa completa',
-      'Secagem manual com microfibra',
-      'Aspiração interna (bancos, tapetes e porta-malas)',
-      'Produtos biodegradáveis, sem soda cáustica'
+      "Lavagem externa completa",
+      "Secagem manual com microfibra",
+      "Aspiração interna",
+      "Aplicação de produtos específicos",
     ],
-    icone: 'sparkle',
-    video: null
+    icone: "sparkle",
+    video: null,
   },
   {
-    id: 'combo-4-lavagens',
-    nome: 'Combo 4 lavagens completas',
-    descricao: '4 × lavagem + secagem + aspiração com 10% de desconto.',
-    categoria: 'lavagem',
+    id: "eco03",
+    codigo: "ECO03",
+    nome: "Banho Geral",
+    descricao: "Lavagem, secagem, aspiração e limpeza do motor.",
+    categoria: "lavagem",
     duracao: 60,
-    preco: 324, // 4 × 90 com 10% de desconto
+    preco: 150,
     avulso: false,
-    semDesconto: true,
     inclui: [
-      '4 lavagens + secagem + aspiração',
-      '10% de desconto sobre o valor avulso',
-      'Você agenda a primeira agora e as outras quando quiser'
+      "Lavagem externa completa",
+      "Secagem manual",
+      "Aspiração interna",
+      "Limpeza do motor",
     ],
-    icone: 'star',
-    video: null
+    icone: "sparkle",
+    video: null,
   },
+
+  // ---- ESTÉTICA E POLIMENTO ----
   {
-    id: 'aspiracao',
-    nome: 'Aspiração interna',
-    descricao: 'Bancos, tapetes e porta-malas.',
-    categoria: 'lavagem',
-    duracao: 30,
-    preco: 45,
+    id: "eco04",
+    codigo: "ECO04",
+    nome: "Enceramento + Lavagem Geral",
+    descricao: "Lavagem geral com enceramento de proteção.",
+    categoria: "estetica",
+    duracao: 90,
+    preco: 190,
     avulso: false,
-    oculto: true,
-    inclui: ['Aspiração de bancos, tapetes e porta-malas'],
-    icone: 'car',
-    video: null
+    inclui: [
+      "Lavagem geral",
+      "Enceramento de proteção",
+      "Brilho e repelência à água",
+    ],
+    icone: "sparkle",
+    video: null,
   },
   {
-    id: 'polimento',
-    nome: 'Polimento',
-    descricao: 'Recupera o brilho e remove micro riscos da pintura.',
-    categoria: 'estetica',
+    id: "eco05",
+    codigo: "ECO05",
+    nome: "Espelhamento da Pintura + Lavagem Geral",
+    descricao: "Lavagem geral com espelhamento da pintura.",
+    categoria: "estetica",
     duracao: 120,
+    preco: 210,
+    avulso: false,
+    inclui: ["Lavagem geral", "Espelhamento da pintura"],
+    icone: "sparkle",
+    video: null,
+  },
+  {
+    id: "eco06",
+    codigo: "ECO06",
+    nome: "Polimento + Lavagem Geral",
+    descricao: "Recupera o brilho e remove micro riscos da pintura.",
+    categoria: "estetica",
+    duracao: 180,
+    preco: 350,
+    avulso: false,
+    inclui: ["Lavagem geral", "Correção da pintura", "Brilho profundo"],
+    icone: "sparkle",
+    video: null,
+  },
+  {
+    id: "eco07",
+    codigo: "ECO07",
+    nome: "Polimento com Cristalização + Lavagem Geral",
+    descricao: "Polimento completo com camada de cristalização.",
+    categoria: "estetica",
+    duracao: 210,
+    preco: 420,
+    avulso: false,
+    inclui: [
+      "Lavagem geral",
+      "Polimento da pintura",
+      "Cristalização de proteção",
+    ],
+    icone: "sparkle",
+    video: null,
+  },
+  {
+    id: "eco08",
+    codigo: "ECO08",
+    nome: "Polimento de Faróis Dianteiros",
+    descricao: "Remove a opacidade e recupera a transparência dos faróis.",
+    categoria: "estetica",
+    duracao: 60,
     preco: 250,
     avulso: false,
     inclui: [
-      'Correção leve da pintura',
-      'Brilho profundo',
-      'Produtos biodegradáveis'
+      "Polimento dos dois faróis dianteiros",
+      "Mais visibilidade à noite",
     ],
-    icone: 'sparkle',
-    video: null
+    icone: "sparkle",
+    video: null,
   },
   {
-    id: 'vitrificacao',
-    nome: 'Vitrificação',
-    descricao: 'Proteção de longa duração para a pintura.',
-    categoria: 'estetica',
-    duracao: 180,
-    preco: 900,
-    avulso: false,
-    garantia: '2 anos, atua só na pintura',
-    inclui: [
-      'Camada protetora cerâmica na pintura',
-      'Mais brilho e facilidade de limpeza',
-      'Garantia de 2 anos'
-    ],
-    icone: 'shield',
-    video: null
-  },
-  {
-    id: 'ionizacao',
-    nome: 'Ionização',
-    descricao: 'Proteção para todas as superfícies do veículo.',
-    categoria: 'estetica',
-    duracao: 90,
-    preco: 600,
-    avulso: false,
-    garantia: '4 anos, atua em todas as superfícies',
-    inclui: [
-      'Proteção em todas as superfícies',
-      'Ação de longa duração',
-      'Garantia de 4 anos'
-    ],
-    icone: 'shield',
-    video: null
-  },
-  {
-    id: 'insulfilm',
-    nome: 'Insulfilm',
-    descricao: 'Instalação por profissional especializado.',
-    categoria: 'avulso',
+    id: "eco14",
+    codigo: "ECO14",
+    nome: "Remoção de Chuva Ácida",
+    descricao: "Remove as marcas de chuva ácida da pintura.",
+    categoria: "estetica",
     duracao: 120,
+    preco: 320,
+    avulso: false,
+    inclui: ["Remoção das manchas de chuva ácida"],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco15",
+    codigo: "ECO15",
+    nome: "Remoção de Chuva Ácida + Cristalização",
+    descricao: "Remoção das manchas com cristalização de proteção.",
+    categoria: "estetica",
+    duracao: 180,
+    preco: 580,
+    avulso: false,
+    inclui: ["Remoção das manchas de chuva ácida", "Cristalização de proteção"],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco16",
+    codigo: "ECO16",
+    nome: "Descontaminação de Pintura",
+    descricao: "Remove contaminantes presos na pintura.",
+    categoria: "estetica",
+    duracao: 90,
+    preco: 250,
+    avulso: false,
+    inclui: ["Descontaminação química e física da pintura"],
+    icone: "shield",
+    video: null,
+  },
+
+  // ---- PROTEÇÃO E VITRIFICAÇÃO ----
+  {
+    id: "eco09",
+    codigo: "ECO09",
+    nome: "Ionização de Pintura + Lavagem Geral",
+    descricao: "Proteção para todas as superfícies do veículo.",
+    categoria: "protecao",
+    duracao: 240,
+    preco: 2297.89,
+    avulso: false,
+    garantia: "4 anos, atua em todas as superfícies",
+    inclui: [
+      "Lavagem geral",
+      "Proteção em todas as superfícies",
+      "Garantia de 4 anos",
+    ],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco10",
+    codigo: "ECO10",
+    nome: "Vitrificação + Lavagem Geral",
+    descricao: "Proteção de longa duração para a pintura.",
+    categoria: "protecao",
+    duracao: 240,
+    preco: 1451.89,
+    avulso: false,
+    garantia: "2 anos, atua só na pintura",
+    inclui: [
+      "Lavagem geral",
+      "Camada protetora cerâmica na pintura",
+      "Garantia de 2 anos",
+    ],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco11",
+    codigo: "ECO11",
+    nome: "Manutenção da Vitrificação",
+    descricao: "Renova a proteção já aplicada.",
+    categoria: "protecao",
+    duracao: 90,
+    preco: 482.89,
+    avulso: false,
+    inclui: ["Renovação da camada de vitrificação"],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco12",
+    codigo: "ECO12",
+    nome: "Vitrificação de Vidro",
+    descricao: "Proteção vitrificada para os vidros.",
+    categoria: "protecao",
+    duracao: 60,
+    preco: 280,
+    avulso: false,
+    inclui: ["Vitrificação dos vidros do veículo"],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco13",
+    codigo: "ECO13",
+    nome: "Vitrificação de Banco de Couro + Higienização",
+    descricao: "Higienização e vitrificação dos bancos de couro.",
+    categoria: "protecao",
+    duracao: 120,
+    preco: 520,
+    avulso: false,
+    inclui: ["Higienização dos bancos", "Vitrificação de proteção do couro"],
+    icone: "shield",
+    video: null,
+  },
+  {
+    id: "eco17",
+    codigo: "ECO17",
+    nome: "Vitrificação de Motor",
+    descricao: "Proteção vitrificada para o compartimento do motor.",
+    categoria: "protecao",
+    duracao: 60,
+    preco: 250,
+    avulso: false,
+    inclui: ["Vitrificação de proteção do motor"],
+    icone: "shield",
+    video: null,
+  },
+
+  // ---- HIGIENIZAÇÃO ----
+  {
+    id: "eco18",
+    codigo: "ECO18",
+    nome: "Bio Higienização",
+    descricao: "Higienização biológica do interior do veículo.",
+    categoria: "higienizacao",
+    duracao: 120,
+    preco: 350,
+    avulso: false,
+    inclui: ["Higienização biológica completa do interior"],
+    icone: "leaf",
+    video: null,
+  },
+  {
+    id: "eco19",
+    codigo: "ECO19",
+    nome: "Higienização de Interior",
+    descricao: "Limpeza profunda de todo o interior do veículo.",
+    categoria: "higienizacao",
+    duracao: 150,
+    preco: 420,
+    avulso: false,
+    inclui: ["Higienização completa de bancos, forros e carpetes"],
+    icone: "leaf",
+    video: null,
+  },
+  {
+    id: "eco20",
+    codigo: "ECO20",
+    nome: "Hidratação de Bancos de Couro",
+    descricao: "Hidratação e conservação dos bancos de couro.",
+    categoria: "higienizacao",
+    duracao: 90,
+    preco: 320,
+    avulso: false,
+    inclui: ["Hidratação dos bancos de couro"],
+    icone: "leaf",
+    video: null,
+  },
+  {
+    id: "eco21",
+    codigo: "ECO21",
+    nome: "Impermeabilização",
+    descricao: "Impermeabilização dos bancos e forros.",
+    categoria: "higienizacao",
+    duracao: 120,
+    preco: 480,
+    avulso: false,
+    inclui: ["Impermeabilização de bancos e forros internos"],
+    icone: "leaf",
+    video: null,
+  },
+  {
+    id: "eco22",
+    codigo: "ECO22",
+    nome: "Pacote Proteção de Couro",
+    descricao:
+      "Proteção de couro, hidratação, higienização e bio higienização.",
+    categoria: "higienizacao",
+    duracao: 240,
+    preco: 1350,
+    avulso: false,
+    inclui: [
+      "Proteção de couro",
+      "Hidratação",
+      "Higienização de interior",
+      "Bio higienização",
+    ],
+    icone: "leaf",
+    video: null,
+  },
+  {
+    id: "eco23",
+    codigo: "ECO23",
+    nome: "Higienização de Interior com Limpeza de Carpete",
+    descricao: "Higienização completa incluindo os carpetes.",
+    categoria: "higienizacao",
+    duracao: 180,
+    preco: 720,
+    avulso: false,
+    inclui: [
+      "Higienização completa do interior",
+      "Limpeza profunda dos carpetes",
+    ],
+    icone: "leaf",
+    video: null,
+  },
+
+  // ---- INSULFILM (agenda separada, profissional externo, 36h de antecedência) ----
+  {
+    id: "eco24",
+    codigo: "ECO24",
+    nome: "Insulfilm Poliéster com Garantia (Traseira e Laterais)",
+    descricao: "Instalação de insulfilm poliéster com garantia.",
+    categoria: "insulfilm",
+    duracao: 90,
     preco: 350,
     avulso: true,
     inclui: [
-      'Instalação por profissional externo',
-      'Agenda separada dos demais serviços',
-      'Agendamento com no mínimo 36 horas de antecedência'
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
     ],
-    icone: 'layers',
-    video: null
-  }
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco25",
+    codigo: "ECO25",
+    nome: "Insulfilm Poliéster para Brisa",
+    descricao: "Instalação de insulfilm poliéster no para-brisa.",
+    categoria: "insulfilm",
+    duracao: 60,
+    preco: 210,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco26",
+    codigo: "ECO26",
+    nome: "Insulfilm Nano Cerâmica Parabrisa (Proteção Térmica)",
+    descricao: "Insulfilm nano cerâmica com proteção térmica no para-brisa.",
+    categoria: "insulfilm",
+    duracao: 90,
+    preco: 680,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Proteção térmica",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco27",
+    codigo: "ECO27",
+    nome: "Insulfilm Nano Cerâmica Premium (Sem Parabrisa)",
+    descricao: "Insulfilm nano cerâmica premium, sem o para-brisa.",
+    categoria: "insulfilm",
+    duracao: 120,
+    preco: 680,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco28",
+    codigo: "ECO28",
+    nome: "Insulfilm Nano Cerâmica Premium (Com Parabrisa)",
+    descricao: "Insulfilm nano cerâmica premium, incluindo o para-brisa.",
+    categoria: "insulfilm",
+    duracao: 150,
+    preco: 920,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco29",
+    codigo: "ECO29",
+    nome: "Insulfilm Nano Carbon Premium (Sem Parabrisa)",
+    descricao: "Insulfilm nano carbon premium, sem o para-brisa.",
+    categoria: "insulfilm",
+    duracao: 120,
+    preco: 580,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco30",
+    codigo: "ECO30",
+    nome: "Insulfilm Nano Carbon Premium (Com Parabrisa)",
+    descricao: "Insulfilm nano carbon premium, incluindo o para-brisa.",
+    categoria: "insulfilm",
+    duracao: 150,
+    preco: 720,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco31",
+    codigo: "ECO31",
+    nome: "Instalação de Película de Segurança PS2",
+    descricao: "Película de segurança PS2 para os vidros.",
+    categoria: "insulfilm",
+    duracao: 120,
+    preco: 1250,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco32",
+    codigo: "ECO32",
+    nome: "Instalação de Película de Segurança PS4",
+    descricao: "Película de segurança PS4 para os vidros.",
+    categoria: "insulfilm",
+    duracao: 150,
+    preco: 1720,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "eco33",
+    codigo: "ECO33",
+    nome: "Instalação de Protetor de Vidro PS8",
+    descricao: "Protetor de vidro PS8, alta resistência.",
+    categoria: "insulfilm",
+    duracao: 180,
+    preco: 2400,
+    avulso: true,
+    inclui: [
+      "Instalação por profissional externo",
+      "Agenda separada",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+  {
+    id: "retirada-insulfilm",
+    codigo: "-",
+    nome: "Retirada de Insulfilm",
+    descricao: "Remoção de insulfilm já instalado.",
+    categoria: "insulfilm",
+    duracao: 60,
+    preco: 250,
+    avulso: true,
+    inclui: [
+      "Remoção do insulfilm por profissional externo",
+      "Mínimo 36h de antecedência",
+    ],
+    icone: "layers",
+    video: null,
+  },
+
+  // ---- COMBO ----
+  {
+    id: "combo-4-banhos",
+    codigo: "-",
+    nome: "Combo 4 Banhos",
+    descricao: "4 × Banho (lavagem + secagem + aspiração) com 10% de desconto.",
+    categoria: "lavagem",
+    duracao: 45,
+    preco: 324,
+    avulso: false,
+    semDesconto: true,
+    inclui: [
+      "4 sessões de Banho",
+      "10% de desconto sobre o valor avulso",
+      "Agende a primeira agora e as outras quando quiser",
+    ],
+    icone: "star",
+    video: null,
+  },
 ];
 
 export const getServico = (id: string) => servicos.find((s) => s.id === id);
 
-// Sugestões do modal de upsell / order bump, por serviço escolhido
-export const upsellPor: Record<string, string[]> = {
-  'lavagem-secagem': ['aspiracao', 'polimento'],
-  'lavagem-secagem-aspiracao': ['polimento', 'vitrificacao'],
-  'combo-4-lavagens': ['polimento', 'vitrificacao'],
-  polimento: ['vitrificacao', 'aspiracao'],
-  vitrificacao: ['ionizacao'],
-  ionizacao: ['lavagem-secagem-aspiracao']
+export const nomesCategorias: Record<Categoria, string> = {
+  lavagem: "Lavagem",
+  estetica: "Estética e polimento",
+  protecao: "Proteção e vitrificação",
+  higienizacao: "Higienização",
+  insulfilm: "Insulfilm",
 };
 
-// Planos de assinatura (valores e descontos de exemplo)
+// Sugestões do modal de upsell / order bump
+export const upsellPor: Record<string, string[]> = {
+  eco01: ["eco02", "eco04"],
+  eco02: ["eco04", "eco06"],
+  eco03: ["eco06", "eco19"],
+  eco04: ["eco06"],
+  eco06: ["eco10", "eco08"],
+  eco07: ["eco10"],
+  eco10: ["eco11"],
+  eco09: ["eco12"],
+  eco19: ["eco20", "eco21"],
+  "combo-4-banhos": ["eco06", "eco19"],
+};
+
 export const planos = [
   {
-    id: 'essencial',
-    nome: 'Essencial',
+    id: "essencial",
+    nome: "Essencial",
     preco: 149,
     desconto: 10,
-    inclui: ['2 lavagens + secagem por mês', '10% de desconto nos demais serviços']
+    inclui: ["2 Banhos por mês", "10% de desconto nos demais serviços"],
   },
   {
-    id: 'premium',
-    nome: 'Premium',
+    id: "premium",
+    nome: "Premium",
     preco: 249,
     desconto: 15,
     inclui: [
-      '4 lavagens + secagem por mês',
-      '15% de desconto nos demais serviços',
-      'Prioridade nos horários'
-    ]
-  }
+      "4 Banhos por mês",
+      "15% de desconto nos demais serviços",
+      "Prioridade nos horários",
+    ],
+  },
 ];
 
-// Ângulos do checklist 360º (antes e depois)
 export const angulos360 = [
-  'Frente',
-  'Traseira',
-  'Lateral esquerda',
-  'Lateral direita',
-  'Painel',
-  'Bancos',
-  'Porta-malas',
-  'Rodas'
+  "Frente",
+  "Traseira",
+  "Lateral esquerda",
+  "Lateral direita",
+  "Painel",
+  "Bancos",
+  "Porta-malas",
+  "Rodas",
 ];
 
 export const avaliacoes = [
-  { nome: 'Cliente exemplo', nota: 5, texto: 'Carro impecável e sem sair do condomínio.' },
-  { nome: 'Cliente exemplo', nota: 5, texto: 'Pontual e muito cuidadoso.' }
+  {
+    nome: "Cliente exemplo",
+    nota: 5,
+    texto: "Carro impecável e sem sair do condomínio.",
+  },
+  { nome: "Cliente exemplo", nota: 5, texto: "Pontual e muito cuidadoso." },
 ];
 
 export const brl = (v: number) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

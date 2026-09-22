@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
-  import { servicos, brl, type Categoria } from '$lib/mock';
+  import { servicos, nomesCategorias, brl, type Categoria } from '$lib/mock';
 
   type Filtro = 'todos' | Categoria;
 
@@ -9,18 +9,19 @@
 
   const filtros: { id: Filtro; nome: string }[] = [
     { id: 'todos', nome: 'Todos' },
-    { id: 'lavagem', nome: 'Lavagem' },
-    { id: 'estetica', nome: 'Proteção e estética' },
-    { id: 'avulso', nome: 'Avulsos' }
+    ...(Object.entries(nomesCategorias) as [Categoria, string][]).map(([id, nome]) => ({
+      id,
+      nome
+    }))
   ];
 
   const lista = $derived(
-    servicos.filter(
-      (s) =>
-        !s.oculto &&
-        (filtro === 'todos' || s.categoria === filtro) &&
-        s.nome.toLowerCase().includes(texto.trim().toLowerCase())
-    )
+    servicos.filter((s) => {
+      const buscaOk =
+        s.nome.toLowerCase().includes(texto.trim().toLowerCase()) ||
+        s.codigo.toLowerCase().includes(texto.trim().toLowerCase());
+      return !s.oculto && (filtro === 'todos' || s.categoria === filtro) && buscaOk;
+    })
   );
 </script>
 
