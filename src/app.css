@@ -1,13 +1,26 @@
 :root {
   /* Cores da identidade visual */
-  --navy-900: #1b232e;
-  --navy-700: #34425e;
-  --gold-100: #fff1b0;
+  --navy-900: #0d0f12;
+  --navy-700: #1c2026;
+  --gold-100: #f3dc8c;
   --gold-500: #d9b45a;
   --teal-700: #2b5a75;
   --white: #ffffff;
   --graphite: #2d2d2d;
   --silver: #c9ced6;
+  --superficie: #16191e; /* barras e cards escuros */
+  --superficie-borda: #2a2f37;
+  --texto-claro: #f2f3f5;
+  --texto-claro-suave: #a9b0bb; /* 7.9:1 sobre --navy-900 */
+  --erro: #b3261e;
+  --erro-vivo: #e5484d;
+  --ok-fundo: #e6f4ea;
+  --ok-texto: #2f7a46;
+  --aviso-fundo: #fff3d1;
+  --aviso-texto: #8a6a12;
+  --info-fundo: #eef5f8;
+  --destaque-fundo: #fffaf0;
+  --veu: rgba(5, 7, 9, 0.7);
 
   /* Cores da folha clara (estilo da referência) */
   --folha: #ffffff;
@@ -48,7 +61,7 @@ body {
   min-height: 100%;
   overflow-x: hidden;
   background: var(--navy-900);
-  color: var(--white);
+  color: var(--texto-claro);
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.5;

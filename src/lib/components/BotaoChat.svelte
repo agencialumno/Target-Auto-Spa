@@ -46,7 +46,7 @@
     border-radius: 999px;
     display: grid;
     place-items: center;
-    background: #e5484d;
+    background: var(--erro-vivo);
     color: var(--white);
     border: 2px solid var(--navy-900);
     font-size: 0.68rem;

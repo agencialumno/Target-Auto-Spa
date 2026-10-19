@@ -167,18 +167,18 @@
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 700;
-    background: #eef5f8;
+    background: var(--info-fundo);
     color: var(--teal-700);
   }
 
   .selo-status.em-atendimento {
-    background: #fff3d1;
-    color: #8a6a12;
+    background: var(--aviso-fundo);
+    color: var(--aviso-texto);
   }
 
   .selo-status.finalizado {
-    background: #e6f4ea;
-    color: #2f7a46;
+    background: var(--ok-fundo);
+    color: var(--ok-texto);
   }
 
   .vazio {
@@ -194,7 +194,7 @@
     margin-top: 22px;
     padding: 12px 14px;
     border-radius: var(--raio);
-    background: #eef5f8;
+    background: var(--info-fundo);
     color: var(--teal-700);
     font-size: 0.82rem;
     font-weight: 600;

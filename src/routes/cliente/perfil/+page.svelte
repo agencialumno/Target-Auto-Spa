@@ -217,7 +217,7 @@
 
   .faixa.atual {
     border-color: var(--gold-500);
-    background: #fffaf0;
+    background: var(--destaque-fundo);
   }
 
   .nota {
@@ -241,7 +241,7 @@
 
   .plano.ativo {
     border-color: var(--gold-500);
-    background: #fffaf0;
+    background: var(--destaque-fundo);
   }
 
   .plano-topo {
@@ -301,7 +301,7 @@
     border-radius: 999px;
     display: grid;
     place-items: center;
-    background: #e5484d;
+    background: var(--erro-vivo);
     color: var(--white);
     font-size: 0.72rem;
   }
@@ -312,7 +312,7 @@
     gap: 12px;
     width: 100%;
     padding: 14px;
-    color: #b3261e;
+    color: var(--erro);
     font-weight: 600;
     font-size: 0.92rem;
     text-align: left;

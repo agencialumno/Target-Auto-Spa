@@ -81,7 +81,7 @@
     padding: 3px 8px;
     border-radius: 999px;
     background: #fde8e8;
-    color: #b3261e;
+    color: var(--erro);
     font-size: 0.7rem;
     font-weight: 700;
     vertical-align: middle;
@@ -97,7 +97,7 @@
 
   .item.nova {
     border-color: var(--gold-500);
-    background: #fffaf0;
+    background: var(--destaque-fundo);
   }
 
   .icone {
@@ -142,7 +142,7 @@
     height: 10px;
     margin-top: 6px;
     border-radius: 50%;
-    background: #e5484d;
+    background: var(--erro-vivo);
   }
 
   .vazio {

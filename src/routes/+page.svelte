@@ -10,8 +10,11 @@
     let email = $state("");
     let senha = $state("");
     let carregando = $state(false);
+    let mostrarSucesso = $state(false);
 
+    // Enquanto o modal de sucesso está aberto, o redirecionamento automático espera
     $effect(() => {
+        if (mostrarSucesso) return;
         if (authStore.carregando || !authStore.usuario || !authStore.perfil)
             return;
         const p = authStore.perfil;
@@ -31,6 +34,7 @@
         try {
             if (modo === "cadastrar") {
                 await authStore.cadastrar(nome, email, senha);
+                mostrarSucesso = true;
             } else {
                 await authStore.entrar(email, senha);
             }
@@ -39,6 +43,10 @@
         } finally {
             carregando = false;
         }
+    }
+
+    function fecharSucesso() {
+        mostrarSucesso = false;
     }
 
     async function comGoogle() {
@@ -157,6 +165,20 @@
     </section>
 </main>
 
+{#if mostrarSucesso}
+    <div class="modal-camada">
+        <div class="modal-caixa">
+            <span class="modal-icone"><span class="check">✓</span></span>
+            <h2>Cadastro realizado com sucesso</h2>
+            <p>
+                Sua conta foi criada. Agora vamos vincular você ao seu
+                condomínio.
+            </p>
+            <button class="btn-primario" onclick={fecharSucesso}>OK</button>
+        </div>
+    </div>
+{/if}
+
 <style>
     .tela {
         width: 100%;
@@ -254,7 +276,7 @@
 
     .erro {
         font-size: 0.85rem;
-        color: #b3261e;
+        color: var(--erro);
     }
 
     .separador {
@@ -277,5 +299,54 @@
     .sociais {
         display: flex;
         gap: 10px;
+    }
+
+    .modal-camada {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--veu);
+    }
+
+    .modal-caixa {
+        width: 100%;
+        max-width: 340px;
+        padding: 28px 24px 24px;
+        border-radius: var(--raio-grande);
+        background: var(--white);
+        color: var(--texto);
+        text-align: center;
+    }
+
+    .modal-icone {
+        display: inline-flex;
+        width: 56px;
+        height: 56px;
+        margin-bottom: 16px;
+        border-radius: 50%;
+        align-items: center;
+        justify-content: center;
+        background: var(--ok-fundo);
+    }
+
+    .check {
+        color: var(--ok-texto);
+        font-size: 1.6rem;
+        font-weight: 700;
+    }
+
+    .modal-caixa h2 {
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+    }
+
+    .modal-caixa p {
+        font-size: 0.88rem;
+        color: var(--texto-suave);
+        margin-bottom: 20px;
     }
 </style>

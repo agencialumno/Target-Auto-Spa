@@ -88,6 +88,6 @@
     .erro {
         margin-bottom: 12px;
         font-size: 0.85rem;
-        color: #b3261e;
+        color: var(--erro);
     }
 </style>

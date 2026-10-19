@@ -657,6 +657,7 @@ export type ServicoResidencial = {
   nome: string;
   descricao: string;
   icone: string;
+  beneficios: string[];
 };
 
 export const servicosResidenciais: ServicoResidencial[] = [
@@ -666,6 +667,11 @@ export const servicosResidenciais: ServicoResidencial[] = [
     nome: "Renovação de Estofados",
     descricao: "Limpeza premium que devolve o aspecto de novo aos estofados.",
     icone: "sparkle",
+    beneficios: [
+      "Remove sujeira e manchas profundas",
+      "Devolve textura e cor originais",
+      "Ambiente mais bonito e agradável",
+    ],
   },
   {
     id: "eco35",
@@ -673,6 +679,11 @@ export const servicosResidenciais: ServicoResidencial[] = [
     nome: "Higienização Profunda de Estofados",
     descricao: "Remoção de fungos e bactérias dos estofados.",
     icone: "leaf",
+    beneficios: [
+      "Remove fungos, ácaros e bactérias",
+      "Reduz odores e alergias",
+      "Ambiente mais saudável para a família",
+    ],
   },
   {
     id: "eco36",
@@ -680,6 +691,11 @@ export const servicosResidenciais: ServicoResidencial[] = [
     nome: "Impermeabilização de Estofados",
     descricao: "Proteção contra líquidos e manchas.",
     icone: "shield",
+    beneficios: [
+      "Protege contra líquidos derramados",
+      "Facilita a limpeza no dia a dia",
+      "Prolonga a vida útil dos estofados",
+    ],
   },
   {
     id: "eco37",
@@ -688,6 +704,11 @@ export const servicosResidenciais: ServicoResidencial[] = [
     descricao:
       "Renovação + higienização + impermeabilização, tudo em um pacote.",
     icone: "star",
+    beneficios: [
+      "Combina renovação, higienização e impermeabilização",
+      "Melhor custo-benefício para uma limpeza completa",
+      "Resultado e proteção em um só atendimento",
+    ],
   },
   {
     id: "eco38",
@@ -695,6 +716,11 @@ export const servicosResidenciais: ServicoResidencial[] = [
     nome: "Insulfilm Poliéster Residencial",
     descricao: "Instalação de insulfilm poliéster em janelas e vidros.",
     icone: "layers",
+    beneficios: [
+      "Reduz a entrada de calor e claridade",
+      "Mais privacidade para os ambientes",
+      "Instalação por profissional especializado",
+    ],
   },
   {
     id: "eco39",
@@ -702,5 +728,10 @@ export const servicosResidenciais: ServicoResidencial[] = [
     nome: "Insulfilm Nano Cerâmica Premium",
     descricao: "Retenção de 99% dos raios UVA e UVB.",
     icone: "layers",
+    beneficios: [
+      "Retém 99% dos raios UVA e UVB",
+      "Maior conforto térmico no ambiente",
+      "Protege móveis e cortinas do desbotamento",
+    ],
   },
 ];

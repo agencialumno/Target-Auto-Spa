@@ -242,7 +242,7 @@
         padding: 14px;
         margin-bottom: 14px;
         border-radius: var(--raio);
-        background: #fffaf0;
+        background: var(--destaque-fundo);
         border: 1px solid var(--gold-500);
         color: var(--texto);
     }

@@ -65,7 +65,7 @@
   .fundo {
     position: absolute;
     inset: 0;
-    background: rgba(10, 15, 22, 0.6);
+    background: var(--veu);
     animation: aparecer 0.2s both;
   }
 
@@ -120,7 +120,7 @@
 
   .item.marcado {
     border-color: var(--gold-500);
-    background: #fffaf0;
+    background: var(--destaque-fundo);
   }
 
   .icone {

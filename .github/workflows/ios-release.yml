@@ -1,0 +1,108 @@
+# Build iOS assinado e envio ao TestFlight.
+#
+# SECRETS (GitHub: Settings > Secrets and variables > Actions > New repository secret)
+#
+#  IOS_CERTIFICATE_BASE64        Certificado "Apple Distribution" (.p12) em base64.
+#       Keychain Access > Meus Certificados > clique com o direito no certificado
+#       "Apple Distribution: ..." > Exportar > formato .p12 > defina uma senha.
+#       Converta:  base64 -i certificado.p12 | pbcopy        (Mac)
+#                  [Convert]::ToBase64String([IO.File]::ReadAllBytes("certificado.p12")) | Set-Clipboard   (Windows)
+#  IOS_CERTIFICATE_PASSWORD      A senha definida ao exportar o .p12.
+#  IOS_PROVISION_PROFILE_BASE64  Perfil "App Store" (.mobileprovision) em base64.
+#       developer.apple.com > Certificates, IDs & Profiles > Profiles > "+" > App Store Connect
+#       > App ID br.com.lumno.targetautospa > escolha o certificado Distribution
+#       > nome "Target Auto Spa App Store" > baixe e converta para base64 como acima.
+#  APP_STORE_CONNECT_KEY_ID      Key ID da API Key (ex.: 38FKF4N94J).
+#  APP_STORE_CONNECT_ISSUER_ID   Issuer ID (UUID).
+#  APP_STORE_CONNECT_KEY_BASE64  Arquivo AuthKey_<KEYID>.p8 em base64.
+#       appstoreconnect.apple.com > Users and Access > Integrations > App Store Connect API
+#       > Team Keys. O Issuer ID aparece no topo; o .p8 só pode ser baixado UMA vez.
+#       Papel recomendado da chave: App Manager.
+#
+# Team ID (KH97Q8M556) já está em src-tauri/tauri.conf.json.
+
+name: iOS Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'static/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'svelte.config.js'
+      - 'vite.config.js'
+      - '.github/workflows/ios-release.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar Rust e targets iOS
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependências
+        run: |
+          npm ci
+          brew install xcodegen
+
+      - name: Definir número do build
+        run: |
+          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.iOS=c.bundle.iOS||{};c.bundle.iOS.bundleVersion=String(process.env.GITHUB_RUN_NUMBER);fs.writeFileSync(p,JSON.stringify(c,null,2));"
+
+      - name: Gerar projeto iOS
+        run: npm run tauri ios init -- --ci
+
+      - name: Build e exportação do .ipa
+        env:
+          # O Tauri importa o certificado numa keychain temporária e instala o perfil
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+        run: npm run tauri ios build -- --export-method app-store-connect
+
+      - name: Localizar .ipa
+        id: ipa
+        run: |
+          IPA="$(find src-tauri/gen/apple -name '*.ipa' | head -1)"
+          if [ -z "$IPA" ]; then echo "Nenhum .ipa gerado"; exit 1; fi
+          echo "path=$IPA" >> "$GITHUB_OUTPUT"
+
+      - name: Enviar ao TestFlight
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          KEY_B64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$KEY_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+          xcrun altool --upload-app --type ios \
+            --file "${{ steps.ipa.outputs.path }}" \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+          rm -f ~/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ steps.ipa.outputs.path }}

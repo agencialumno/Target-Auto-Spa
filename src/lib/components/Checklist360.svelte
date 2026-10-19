@@ -197,7 +197,7 @@
   .erro {
     margin-top: 8px;
     font-size: 0.82rem;
-    color: #b3261e;
+    color: var(--erro);
   }
 
   .zoom {

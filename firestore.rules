@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() {
+      return request.auth != null;
+    }
+
+    function meuPerfil() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function souAdmin() {
+      return logado() && meuPerfil().role == 'admin';
+    }
+
+    function souGerenteDoCondominio(condominioId) {
+      return logado() && meuPerfil().role == 'gerente' && meuPerfil().condominioId == condominioId;
+    }
+
+    // Perfil do usuário: só ele mesmo lê/edita o próprio, admin lê todos
+    match /users/{userId} {
+      allow read: if logado() && (request.auth.uid == userId || souAdmin());
+      // Criação: só o próprio usuário, e só pode se autoatribuir o papel "cliente"
+      allow create: if request.auth.uid == userId
+                    && request.resource.data.role == 'cliente';
+      // Atualização: só o próprio usuário, e não pode mudar o próprio papel
+      allow update: if request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role;
+    }
+
+    // Condomínios: qualquer usuário logado pode ler (para buscar pelo nome), só admin escreve
+    match /condominios/{condominioId} {
+      allow read: if logado();
+      allow write: if souAdmin();
+    }
+
+    // Catálogo de serviços: leitura pública para logados, escrita só admin
+    match /servicos/{servicoId} {
+      allow read: if logado();
+      allow write: if souAdmin();
+    }
+
+    // Agendamentos: cliente dono, gerente do mesmo condomínio, ou admin
+    match /agendamentos/{agendamentoId} {
+      allow read: if logado() && (
+        resource.data.clienteId == request.auth.uid ||
+        souGerenteDoCondominio(resource.data.condominioId) ||
+        souAdmin()
+      );
+      allow create: if logado() && request.resource.data.clienteId == request.auth.uid;
+      allow update: if logado() && (
+        resource.data.clienteId == request.auth.uid ||
+        souGerenteDoCondominio(resource.data.condominioId) ||
+        souAdmin()
+      );
+    }
+
+    // Mensagens de chat: cliente dono da conversa, ou gerente do mesmo condomínio
+    match /chats/{chatId}/mensagens/{msgId} {
+      allow read, create: if logado();
+    }
+  }
+}
