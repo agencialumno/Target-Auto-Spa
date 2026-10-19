@@ -46,19 +46,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-
+      # O runner ubuntu-latest já traz o Android SDK (ANDROID_HOME). Usamos o sdkmanager dele
+      # direto em vez da action setup-android, que tenta instalar o pacote legado "tools".
       - name: Aceitar licenças do Android SDK
         run: |
           # Sem pipefail: o `yes` recebe SIGPIPE quando o sdkmanager termina, e isso não é erro
           set +o pipefail
-          yes | sdkmanager --licenses > /dev/null
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
 
       - name: Instalar plataforma e NDK
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
 
       - name: Instalar Rust e targets Android
