@@ -74,13 +74,82 @@ jobs:
       - name: Gerar projeto iOS
         run: npm run tauri ios init -- --ci
 
-      - name: Build e exportação do .ipa
+      # O Tauri gera o projeto Xcode com assinatura automática. Aqui instalamos o certificado e o
+      # perfil e depois forçamos assinatura manual no projeto (o que o Codemagic fazia com
+      # `xcode-project use-profiles`).
+      - name: Instalar certificado e perfil
         env:
-          # O Tauri importa o certificado numa keychain temporária e instala o perfil
-          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
-        run: npm run tauri ios build -- --export-method app-store-connect
+          CERT_B64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          PROFILE_B64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/perfil.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/perfil.mobileprovision" > "$RUNNER_TEMP/perfil.plist"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/perfil.plist")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print Name' "$RUNNER_TEMP/perfil.plist")"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/perfil.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "Perfil instalado: $PROFILE_NAME ($PROFILE_UUID)"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Configurar assinatura manual no projeto Xcode
+        run: |
+          pip3 install --break-system-packages codemagic-cli-tools || pip3 install codemagic-cli-tools
+          cd src-tauri/gen/apple
+          xcode-project use-profiles
+
+      - name: Build do app iOS
+        run: |
+          # O Tauri compila e cria o archive. A exportação dele pode falhar; seguimos se o archive existir
+          npm run tauri ios build -- --export-method app-store-connect || true
+          ARCHIVE="$(find src-tauri/gen/apple -name '*.xcarchive' | head -1)"
+          echo "Archive encontrado: $ARCHIVE"
+          if [ -z "$ARCHIVE" ]; then echo "Nenhum archive foi gerado"; exit 1; fi
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Exportar .ipa
+        run: |
+          if find src-tauri/gen/apple -name '*.ipa' | grep -q .; then
+            echo ".ipa já exportado pelo Tauri"
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>KH97Q8M556</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>br.com.lumno.targetautospa</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive             -archivePath "$ARCHIVE"             -exportPath src-tauri/gen/apple/build/export             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Localizar .ipa
         id: ipa
