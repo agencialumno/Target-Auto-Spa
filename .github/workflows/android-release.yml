@@ -47,6 +47,14 @@ jobs:
           java-version: 17
 
       - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Aceitar licenças do Android SDK
+        run: |
+          # Sem pipefail: o `yes` recebe SIGPIPE quando o sdkmanager termina, e isso não é erro
+          set +o pipefail
+          yes | sdkmanager --licenses > /dev/null
 
       - name: Instalar plataforma e NDK
         run: |
