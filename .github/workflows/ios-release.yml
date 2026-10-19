@@ -69,7 +69,12 @@ jobs:
 
       - name: Definir número do build
         run: |
-          node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.iOS=c.bundle.iOS||{};c.bundle.iOS.bundleVersion=String(process.env.GITHUB_RUN_NUMBER);fs.writeFileSync(p,JSON.stringify(c,null,2));"
+          # +100 garante ficar acima de qualquer build já enviado (inclusive os do Codemagic)
+          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 100))
+          echo "github.run_number=$GITHUB_RUN_NUMBER run_attempt=$GITHUB_RUN_ATTEMPT -> bundleVersion=$BUILD_NUMBER"
+          BUILD_NUMBER="$BUILD_NUMBER" node -e "const fs=require('fs');const p='src-tauri/tauri.conf.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.bundle=c.bundle||{};c.bundle.iOS=c.bundle.iOS||{};c.bundle.iOS.bundleVersion=process.env.BUILD_NUMBER;fs.writeFileSync(p,JSON.stringify(c,null,2));"
+          echo "tauri.conf.json bundle.iOS:"
+          node -e "console.log(JSON.stringify(require('./src-tauri/tauri.conf.json').bundle.iOS))"
 
       - name: Gerar projeto iOS
         run: npm run tauri ios init -- --ci
@@ -77,6 +82,10 @@ jobs:
       # O Tauri gera o projeto Xcode com assinatura automática. Aqui instalamos o certificado e o
       # perfil e depois forçamos assinatura manual no projeto (o que o Codemagic fazia com
       # `xcode-project use-profiles`).
+      - name: Conferir versão no projeto gerado
+        run: |
+          grep -rn -A1 "CFBundleVersion\|CFBundleShortVersionString" src-tauri/gen/apple --include=Info.plist --include=project.yml || true
+
       - name: Verificar ícone 1024x1024
         run: |
           # Sem o PNG de 1024x1024 o App Store Connect mostra um ícone genérico
