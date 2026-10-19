@@ -77,6 +77,45 @@ jobs:
       # O Tauri gera o projeto Xcode com assinatura automática. Aqui instalamos o certificado e o
       # perfil e depois forçamos assinatura manual no projeto (o que o Codemagic fazia com
       # `xcode-project use-profiles`).
+      - name: Diagnóstico e correção do AppIcon
+        run: |
+          SET="src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset"
+          echo "== Todos os appiconset gerados"
+          find src-tauri/gen/apple -type d -name '*.appiconset' || true
+          if [ ! -d "$SET" ]; then
+            echo "::error::$SET não existe. O tauri ios init não gerou o AppIcon."
+            exit 1
+          fi
+          echo "== Arquivos em $SET (antes)"
+          ls -la "$SET"
+          echo "== Contents.json"
+          cat "$SET/Contents.json" || echo "(sem Contents.json)"
+
+          # Copia os ícones do projeto quando o arquivo estiver ausente ou vazio
+          for f in src-tauri/icons/ios/*.png; do
+            nome="$(basename "$f")"
+            if [ ! -s "$SET/$nome" ]; then
+              echo "Copiando $nome"
+              cp "$f" "$SET/$nome"
+            fi
+          done
+
+          echo "== Arquivos em $SET (depois)"
+          ls -la "$SET"
+
+          ENCONTROU=0
+          for f in "$SET"/*.png; do
+            [ -e "$f" ] || continue
+            L="$(sips -g pixelWidth "$f" | awk '/pixelWidth/ {print $2}')"
+            A="$(sips -g pixelHeight "$f" | awk '/pixelHeight/ {print $2}')"
+            echo "$(basename "$f"): ${L}x${A}"
+            if [ "$L" = "1024" ] && [ "$A" = "1024" ]; then ENCONTROU=1; fi
+          done
+          if [ "$ENCONTROU" != "1" ]; then
+            echo "::error::Nenhum PNG 1024x1024 em $SET. O ícone do App Store ficaria genérico."
+            exit 1
+          fi
+
       - name: Instalar certificado e perfil
         env:
           CERT_B64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
