@@ -1,5 +1,11 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  inMemoryPersistence,
+} from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -13,6 +19,20 @@ const firebaseConfig = {
 };
 
 export const firebaseApp = initializeApp(firebaseConfig);
-export const auth = getAuth(firebaseApp);
+// No WebView do Tauri/iOS o getAuth() trava: ele carrega o popupRedirectResolver (iframe em
+// firebaseapp.com) e espera por ele. Inicializamos sem resolver; as persistências são tentadas
+// em ordem caso o IndexedDB não esteja disponível.
+function criarAuth() {
+  try {
+    return initializeAuth(firebaseApp, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence],
+    });
+  } catch {
+    // Já inicializado (recarga a quente em desenvolvimento)
+    return getAuth(firebaseApp);
+  }
+}
+
+export const auth = criarAuth();
 export const db = getFirestore(firebaseApp);
 export const storage = getStorage(firebaseApp);

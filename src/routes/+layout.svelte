@@ -5,6 +5,9 @@
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import Splash from '$lib/components/Splash.svelte';
+  import { depuracao } from '$lib/debug.svelte';
+
+  depuracao.iniciar();
 
   let { children } = $props();
 

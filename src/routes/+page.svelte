@@ -2,6 +2,7 @@
     import { goto } from "$app/navigation";
     import logo from "$lib/assets/logo.png";
     import { authStore } from "$lib/auth.svelte";
+    import PainelDepuracao from "$lib/components/PainelDepuracao.svelte";
 
     type Modo = "entrar" | "cadastrar";
     let modo: Modo = $state("entrar");
@@ -154,16 +155,20 @@
             <button
                 class="btn-secundario"
                 onclick={comGoogle}
-                disabled={carregando}>Google</button
+                disabled
+                title="Em breve">Google</button
             >
             <button
                 class="btn-secundario"
                 onclick={comApple}
-                disabled={carregando}>Apple</button
+                disabled
+                title="Em breve">Apple</button
             >
         </div>
     </section>
 </main>
+
+<PainelDepuracao />
 
 {#if mostrarSucesso}
     <div class="modal-camada">
