@@ -2,6 +2,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithCredential,
   GoogleAuthProvider,
   OAuthProvider,
   signOut,
@@ -21,6 +22,18 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { depuracao } from "./debug.svelte";
+import { invoke } from "@tauri-apps/api/core";
+import { gerarNonce, sha256Hex } from "./nonce";
+
+// Erros do plugin chegam como texto (reject do Swift), não como { code }
+function erroApple(e: any): string {
+  if (e?.code) return e.code;
+  const msg = String(e?.message ?? e ?? "");
+  // 1001 = ASAuthorizationError.canceled
+  if (/1001|canceled|cancelled/i.test(msg)) return "apple/cancelado";
+  if (/not allowed|command .* not found|plugin/i.test(msg)) return "apple/indisponivel";
+  return "apple/erro";
+}
 
 const TIMEOUT_MS = 15000;
 
@@ -127,24 +140,56 @@ class Auth {
     }
   }
 
+  // "Sign in with Apple" nativo (plugin tauri-plugin-sign-in-with-apple, só iOS):
+  // a Apple recebe o SHA-256 do nonce e o Firebase recebe o nonce original.
   async entrarComApple() {
     this.erro = "";
     try {
-      const provider = new OAuthProvider("apple.com");
-      const cred = await signInWithPopup(auth, provider);
-      await this.garantirPerfil(cred.user);
+      const rawNonce = gerarNonce();
+      const nonce = await sha256Hex(rawNonce);
+      depuracao.registrar("apple: abrindo folha nativa");
+
+      // Sem timeout aqui: a pessoa pode demorar na folha da Apple
+      const apple = await invoke<{
+        identityToken: string | null;
+        givenName: string | null;
+        familyName: string | null;
+      }>("plugin:sign-in-with-apple|get_apple_id_credential", {
+        payload: { scope: ["fullName", "email"], nonce },
+      });
+      if (!apple.identityToken) {
+        throw { code: "apple/sem-token" };
+      }
+
+      const credencial = new OAuthProvider("apple.com").credential({
+        idToken: apple.identityToken,
+        rawNonce,
+      });
+      const cred = await comTimeout(
+        signInWithCredential(auth, credencial),
+        "apple",
+      );
+      // A Apple só informa o nome na primeira autorização
+      const nome = [apple.givenName, apple.familyName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      await comTimeout(this.garantirPerfil(cred.user, nome), "apple-perfil");
+      depuracao.registrar("apple: ok");
     } catch (e: any) {
-      this.erro = traduzErro(e.code);
+      const codigo = erroApple(e);
+      this.erro = traduzErro(codigo);
+      depuracao.registrar(`erro apple: ${codigo} ${e?.message ?? e}`);
       throw e;
     }
   }
 
   // Google/Apple podem ser o primeiro login: cria o perfil de cliente se ainda não existir
-  private async garantirPerfil(user: User) {
+  private async garantirPerfil(user: User, nomeInformado = "") {
     const existente = await this.buscarPerfil(user.uid);
     if (!existente) {
       await setDoc(doc(db, "users", user.uid), {
-        nome: user.displayName ?? "Cliente",
+        nome: nomeInformado || user.displayName || "Cliente",
         email: user.email ?? "",
         role: "cliente",
         condominioId: null,
@@ -194,6 +239,9 @@ function traduzErro(codigo?: string) {
     "auth/wrong-password": "E-mail ou senha incorretos.",
     "auth/invalid-credential": "E-mail ou senha incorretos.",
     "auth/popup-closed-by-user": "Login cancelado.",
+    "apple/cancelado": "Login cancelado.",
+    "apple/indisponivel": "Entrar com Apple só está disponível no app para iPhone.",
+    "apple/sem-token": "A Apple não devolveu a credencial. Tente novamente.",
     "auth/network-request-failed": "Sem conexão com o Firebase. Verifique a internet.",
   };
   if (codigo?.startsWith("timeout/")) {

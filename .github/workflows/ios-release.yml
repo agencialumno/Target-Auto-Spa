@@ -82,6 +82,25 @@ jobs:
       # O Tauri gera o projeto Xcode com assinatura automática. Aqui instalamos o certificado e o
       # perfil e depois forçamos assinatura manual no projeto (o que o Codemagic fazia com
       # `xcode-project use-profiles`).
+      # O Tauri não tem opção de configuração para entitlements e gen/ não é versionado:
+      # a capacidade "Sign in with Apple" é inserida no arquivo gerado a cada build.
+      # Exige o perfil App Store gerado DEPOIS de habilitar a capacidade no App ID.
+      - name: Habilitar Sign in with Apple (entitlement)
+        run: |
+          ENT="$(find src-tauri/gen/apple -name '*.entitlements' -not -path '*/build/*' | head -1)"
+          if [ -z "$ENT" ]; then
+            echo "::error::Nenhum arquivo .entitlements no projeto iOS gerado."
+            find src-tauri/gen/apple -maxdepth 2 -not -path '*/build/*' | head -40
+            exit 1
+          fi
+          echo "Entitlements: $ENT"
+          echo "== antes"; cat "$ENT"
+          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.applesignin" "$ENT" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.applesignin array" "$ENT"
+          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.applesignin:0 string Default" "$ENT"
+          echo "== depois"; cat "$ENT"
+          grep -n "entitlements\|CODE_SIGN_ENTITLEMENTS" src-tauri/gen/apple/project.yml || echo "(project.yml não cita entitlements)"
+
       - name: Conferir versão no projeto gerado
         run: |
           grep -rn -A1 "CFBundleVersion\|CFBundleShortVersionString" src-tauri/gen/apple --include=Info.plist --include=project.yml || true

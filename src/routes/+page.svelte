@@ -226,8 +226,7 @@
             <button
                 class="btn-secundario social"
                 onclick={comApple}
-                disabled
-                title="Em breve"
+                disabled={carregando}
             >
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
                     <path
