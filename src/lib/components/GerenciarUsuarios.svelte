@@ -1,7 +1,7 @@
 <script lang="ts">
   import { collection, getDocs } from 'firebase/firestore';
-  import { httpsCallable } from 'firebase/functions';
-  import { db, functions } from '$lib/firebase';
+  import { db, auth } from '$lib/firebase';
+  import { API_BASE } from '$lib/config';
   import { authStore, type Papel } from '$lib/auth.svelte';
   import Icone from '$lib/components/Icone.svelte';
 
@@ -79,20 +79,33 @@
     formAberto = true;
   }
 
-  // Mensagem do servidor (HttpsError) quando houver; senão uma genérica
-  const mensagem = (e: any, padrao: string) =>
-    e?.code === 'functions/not-found' || e?.code === 'functions/unavailable'
-      ? 'O serviço de usuários ainda não está disponível. Tente mais tarde.'
-      : e?.message && !String(e.message).startsWith('internal')
-        ? e.message
-        : padrao;
+  // Chama a API da Vercel com o ID token do admin logado; erros vêm como { erro: "mensagem" }
+  async function chamarApi(caminho: string, corpo: object) {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Sessão expirada. Entre novamente.');
+    let resposta: Response;
+    try {
+      resposta = await fetch(`${API_BASE}/api/usuarios/${caminho}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(corpo)
+      });
+    } catch {
+      throw new Error('Sem conexão com o servidor. Verifique a internet.');
+    }
+    const dados = await resposta.json().catch(() => ({}));
+    if (!resposta.ok) throw new Error(dados.erro ?? 'Erro inesperado no servidor.');
+    return dados;
+  }
+
+  const mensagem = (e: any, padrao: string) => e?.message || padrao;
 
   async function criar() {
     if (!podeCriar) return;
     salvando = true;
     erroForm = '';
     try {
-      await httpsCallable(functions, 'criarUsuario')({
+      await chamarApi('criar', {
         nome,
         email,
         senha,
@@ -113,7 +126,7 @@
     apagando = true;
     erroRemover = '';
     try {
-      await httpsCallable(functions, 'removerUsuario')({ uid: removendo.uid });
+      await chamarApi('remover', { uid: removendo.uid });
       removendo = null;
       await carregar();
     } catch (e) {

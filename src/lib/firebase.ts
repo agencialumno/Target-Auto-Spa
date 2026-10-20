@@ -8,7 +8,6 @@ import {
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCZ-jCllQs0VDOW7dI_By2lie8BlYe8JOk",
@@ -37,5 +36,3 @@ function criarAuth() {
 export const auth = criarAuth();
 export const db = getFirestore(firebaseApp);
 export const storage = getStorage(firebaseApp);
-// Mesma região de functions/index.js
-export const functions = getFunctions(firebaseApp, "southamerica-east1");
