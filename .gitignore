@@ -27,3 +27,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 __pycache__/
+
+# Chaves de service account do Firebase (nunca enviar)
+*-firebase-adminsdk-*.json
+service-account*.json
+chave-service-account*.json

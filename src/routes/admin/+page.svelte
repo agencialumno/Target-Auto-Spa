@@ -5,14 +5,16 @@
   import { servicos, planos, getServico, brl } from '$lib/mock';
   import { niveis } from '$lib/niveis';
   import { dataCurta } from '$lib/formato';
+  import GerenciarUsuarios from '$lib/components/GerenciarUsuarios.svelte';
 
-  type Aba = 'resumo' | 'agendamentos' | 'precos' | 'avaliacoes';
+  type Aba = 'resumo' | 'agendamentos' | 'precos' | 'avaliacoes' | 'usuarios';
 
   const abas: { id: Aba; nome: string }[] = [
     { id: 'resumo', nome: 'Resumo' },
     { id: 'agendamentos', nome: 'Agendamentos' },
     { id: 'precos', nome: 'Preços' },
-    { id: 'avaliacoes', nome: 'Avaliações' }
+    { id: 'avaliacoes', nome: 'Avaliações' },
+    { id: 'usuarios', nome: 'Usuários' }
   ];
 
   let aba = $state<Aba>('resumo');
@@ -51,7 +53,9 @@
       {/each}
     </div>
 
-    {#if aba === 'resumo'}
+    {#if aba === 'usuarios'}
+      <GerenciarUsuarios />
+    {:else if aba === 'resumo'}
       <div class="kpis">
         <div class="kpi card">
           <small>Receita</small>
