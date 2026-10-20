@@ -155,6 +155,11 @@ class Auth {
 
   async sair() {
     await signOut(auth);
+    // Limpa já, sem esperar o onAuthStateChanged: quem navega para "/" logo depois do
+    // sair() não pode ainda enxergar o usuário e o perfil antigos
+    this.usuario = null;
+    this.perfil = null;
+    this.erro = "";
   }
 
   // Busca o condomínio pelo nome (case-insensitive simples) e vincula ao usuário logado

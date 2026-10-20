@@ -3,6 +3,7 @@
   import Icone from '$lib/components/Icone.svelte';
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import { app } from '$lib/app.svelte';
+  import { authStore } from '$lib/auth.svelte';
   import { reserva } from '$lib/reserva.svelte';
   import { planos, brl } from '$lib/mock';
   import { niveis, JANELA_DIAS } from '$lib/niveis';
@@ -14,8 +15,10 @@
   let confirmandoSaida = $state(false);
 
   async function sair() {
+    // Antes só navegava para "/": o Firebase continuava logado e o login redirecionava de volta
+    await authStore.sair();
     reserva.reiniciar();
-    await goto('/');
+    await goto('/', { replaceState: true });
   }
 </script>
 
