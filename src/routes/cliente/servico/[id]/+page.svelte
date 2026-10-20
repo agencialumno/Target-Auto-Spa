@@ -108,6 +108,10 @@
                 {/each}
             </ul>
 
+            <button class="btn-primario agendar" onclick={agendar}>
+                Agendar · {brl(s.preco)}
+            </button>
+
             <div class="secao-topo">
                 <h2>Avaliações</h2>
                 <span class="nota"><Icone nome="star" tamanho={16} /> 5,0</span>
@@ -120,12 +124,6 @@
             {/each}
             <p class="demo">Avaliações de exemplo para a demonstração.</p>
         </section>
-
-        <div class="cta">
-            <button class="btn-primario" onclick={agendar}>
-                Agendar · {brl(s.preco)}
-            </button>
-        </div>
 
         <ModalUpsell
             aberto={modal}
@@ -183,10 +181,6 @@
         place-items: center;
         background: var(--gold-500);
         color: var(--navy-900);
-    }
-
-    .corpo {
-        padding-bottom: calc(110px + var(--safe-bottom));
     }
 
     h1 {
@@ -290,13 +284,8 @@
         color: var(--texto-suave);
     }
 
-    .cta {
-        position: fixed;
-        left: 12px;
-        right: 12px;
-        bottom: calc(100px + var(--safe-bottom));
-        z-index: 15;
-        max-width: 480px;
-        margin: 0 auto;
+    /* Botão no fluxo normal da página, logo depois de "O que está incluso" */
+    .agendar {
+        margin-top: 22px;
     }
 </style>

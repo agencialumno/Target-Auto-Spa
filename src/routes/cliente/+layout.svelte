@@ -159,8 +159,10 @@
         flex: 1;
     }
 
+    /* A barra ocupa ~82px do rodapé (12 de margem + ~70 de altura) e o botão "+" sobe
+       mais 30px, então ~112px + safe-area. Somamos 28px de folga para o último item. */
     :global(.com-barra) {
-        padding-bottom: calc(112px + var(--safe-bottom)) !important;
+        padding-bottom: calc(140px + var(--safe-bottom)) !important;
     }
 
     :global(.cab) {
