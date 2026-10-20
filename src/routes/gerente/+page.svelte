@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
+  import { authStore } from '$lib/auth.svelte';
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
   import { getServico, brl, angulos360 } from '$lib/mock';
@@ -50,9 +51,9 @@
 <div class="pagina">
   <header class="cab">
     <div class="cab-topo">
-      <a class="btn-voltar" href="/" aria-label="Sair">
+      <button type="button" class="btn-voltar" aria-label="Sair" onclick={() => authStore.sair()}>
         <Icone nome="back" />
-      </a>
+      </button>
       <BotaoChat
         href="/gerente/chat"
         contagem={app.msgNaoLidasGerente}

@@ -16,6 +16,7 @@
             if (resultado === "ok") {
                 goto("/cliente");
             } else {
+                // Hoje não acontece (validação temporariamente desligada em auth.svelte.ts)
                 erro =
                     "Condomínio não encontrado. Confira o nome ou fale com a administração.";
             }
@@ -27,6 +28,19 @@
 
 <div class="pagina">
     <header class="cab">
+        <div class="cab-topo">
+            <button
+                type="button"
+                class="btn-voltar"
+                aria-label="Voltar para o login"
+                onclick={async () => {
+                    await authStore.sair();
+                    goto("/");
+                }}
+            >
+                <Icone nome="back" />
+            </button>
+        </div>
         <h1>Qual é o seu <em>condomínio?</em></h1>
         <p>Assim conseguimos direcionar o atendimento certo até você.</p>
     </header>

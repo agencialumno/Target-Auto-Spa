@@ -53,6 +53,8 @@ html {
   width: 100%;
   height: 100%;
   overflow-x: hidden;
+  /* Só rolagem e toque simples: bloqueia pinch-zoom e double-tap-zoom */
+  touch-action: pan-x pan-y;
   -webkit-text-size-adjust: 100%;
 }
 

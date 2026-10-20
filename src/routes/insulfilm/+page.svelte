@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
+  import { authStore } from '$lib/auth.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
   import { brl } from '$lib/mock';
   import { dataCurta } from '$lib/formato';
@@ -17,9 +18,9 @@
 <div class="pagina">
   <header class="cab">
     <div class="cab-topo">
-      <a class="btn-voltar" href="/" aria-label="Sair">
+      <button type="button" class="btn-voltar" aria-label="Sair" onclick={() => authStore.sair()}>
         <Icone nome="back" />
-      </a>
+      </button>
     </div>
     <h1>Agenda do <em>insulfilm</em></h1>
     <p>Profissional externo · agenda separada</p>

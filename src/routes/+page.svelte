@@ -3,6 +3,7 @@
     import logo from "$lib/assets/logo.png";
     import { authStore } from "$lib/auth.svelte";
     import PainelDepuracao from "$lib/components/PainelDepuracao.svelte";
+    import Icone from "$lib/components/Icone.svelte";
 
     type Modo = "entrar" | "cadastrar";
     let modo: Modo = $state("entrar");
@@ -10,6 +11,19 @@
     let nome = $state("");
     let email = $state("");
     let senha = $state("");
+
+    // Critérios da senha forte (só exigidos no cadastro)
+    const criterios = $derived([
+        { texto: "Mínimo 8 caracteres", ok: senha.length >= 8 },
+        { texto: "Pelo menos 1 letra maiúscula", ok: /[A-Z]/.test(senha) },
+        { texto: "Pelo menos 1 letra minúscula", ok: /[a-z]/.test(senha) },
+        { texto: "Pelo menos 1 número", ok: /[0-9]/.test(senha) },
+        {
+            texto: "Pelo menos 1 caractere especial (!@#$%^&*)",
+            ok: /[^A-Za-z0-9]/.test(senha),
+        },
+    ]);
+    const senhaForte = $derived(criterios.every((c) => c.ok));
     let carregando = $state(false);
     let mostrarSucesso = $state(false);
 
@@ -31,6 +45,7 @@
     });
 
     async function enviar() {
+        if (modo === "cadastrar" && !senhaForte) return;
         carregando = true;
         try {
             if (modo === "cadastrar") {
@@ -75,6 +90,16 @@
 
 <main class="tela">
     <section class="cabecalho">
+        {#if modo === "cadastrar"}
+            <button
+                type="button"
+                class="btn-voltar voltar-login"
+                aria-label="Voltar para entrar"
+                onclick={() => (modo = "entrar")}
+            >
+                <Icone nome="back" />
+            </button>
+        {/if}
         <img class="logo" src={logo} alt="Grupo Target Auto Spa" />
         <h1>
             O cuidado que seu carro merece,
@@ -131,16 +156,36 @@
                     type="password"
                     bind:value={senha}
                     required
-                    minlength="6"
+                    minlength={modo === "cadastrar" ? 8 : 6}
                     placeholder="••••••••"
                 />
             </label>
+
+            {#if modo === "cadastrar"}
+                <ul class="criterios" aria-label="Requisitos da senha">
+                    {#each criterios as c}
+                        <li class:ok={c.ok}>
+                            <span class="marca" aria-hidden="true">
+                                {#if c.ok}<Icone nome="check" tamanho={12} />{/if}
+                            </span>
+                            <span>{c.texto}</span>
+                            <span class="so-leitor"
+                                >{c.ok ? "atendido" : "pendente"}</span
+                            >
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
 
             {#if authStore.erro}
                 <p class="erro">{authStore.erro}</p>
             {/if}
 
-            <button class="btn-primario" type="submit" disabled={carregando}>
+            <button
+                class="btn-primario"
+                type="submit"
+                disabled={carregando || (modo === "cadastrar" && !senhaForte)}
+            >
                 {carregando
                     ? "Aguarde..."
                     : modo === "cadastrar"
@@ -203,6 +248,7 @@
         flex-direction: column;
         align-items: center;
         text-align: center;
+        position: relative;
         padding: calc(28px + var(--safe-top)) 20px 20px;
     }
 
@@ -282,6 +328,62 @@
     .erro {
         font-size: 0.85rem;
         color: var(--erro);
+    }
+
+    .voltar-login {
+        position: absolute;
+        top: calc(12px + var(--safe-top));
+        left: 16px;
+    }
+
+    .criterios {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px 14px;
+        background: var(--card);
+        border: 1px solid var(--card-borda);
+        border-left: 3px solid var(--gold-500);
+        border-radius: var(--raio);
+        font-size: 0.82rem;
+        color: var(--texto-suave);
+    }
+
+    .criterios li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .criterios li.ok {
+        color: var(--ok-texto);
+        font-weight: 600;
+    }
+
+    .marca {
+        flex: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        border: 1.5px solid var(--card-borda);
+        background: var(--white);
+    }
+
+    .criterios li.ok .marca {
+        background: var(--ok-texto);
+        border-color: var(--ok-texto);
+        color: var(--white);
+    }
+
+    .so-leitor {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
     }
 
     .separador {

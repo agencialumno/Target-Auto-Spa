@@ -169,9 +169,11 @@ class Auth {
       limit(1),
     );
     const snap = await getDocs(q);
-    if (snap.empty) return "nao-encontrado";
 
-    const condominioId = snap.docs[0].id;
+    // TEMPORÁRIO: qualquer nome de condomínio é aceito até definirmos a regra certa.
+    // Se não existir em `condominios`, usa o nome normalizado como condominioId.
+    // Para voltar a exigir cadastro prévio: `if (snap.empty) return "nao-encontrado";`
+    const condominioId = snap.empty ? nomeNormalizado : snap.docs[0].id;
     await updateDoc(doc(db, "users", this.usuario.uid), { condominioId });
     this.perfil = await this.buscarPerfil(this.usuario.uid);
     return "ok";

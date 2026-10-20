@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
+  import { authStore } from '$lib/auth.svelte';
   import { app, rotuloStatus, ordemStatus } from '$lib/app.svelte';
   import { servicos, planos, getServico, brl } from '$lib/mock';
   import { niveis } from '$lib/niveis';
@@ -30,9 +31,9 @@
 <div class="pagina">
   <header class="cab">
     <div class="cab-topo">
-      <a class="btn-voltar" href="/" aria-label="Sair">
+      <button type="button" class="btn-voltar" aria-label="Sair" onclick={() => authStore.sair()}>
         <Icone nome="back" />
-      </a>
+      </button>
       <a class="btn-voltar" href="/gerente/chat" aria-label="Ver conversas">
         <Icone nome="chat" />
       </a>
