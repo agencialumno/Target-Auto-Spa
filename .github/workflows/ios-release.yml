@@ -86,25 +86,47 @@ jobs:
         run: |
           grep -rn -A1 "CFBundleVersion\|CFBundleShortVersionString" src-tauri/gen/apple --include=Info.plist --include=project.yml || true
 
-      - name: Verificar ícone 1024x1024
+      - name: Instalar e verificar ícones do iOS
         run: |
-          # Sem o PNG de 1024x1024 o App Store Connect mostra um ícone genérico
-          SET="src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset"
+          APPICON_DIR="src-tauri/gen/apple"
+          SET="$APPICON_DIR/Assets.xcassets/AppIcon.appiconset"
+
+          echo "== project.yml: nome do ícone e catálogos"
+          grep -rn "APPICON\|appicon\|Assets.xcassets" "$APPICON_DIR"/project.yml || true
+          echo "== Todos os .xcassets e .appiconset"
+          find "$APPICON_DIR" \( -name '*.xcassets' -o -name '*.appiconset' \) -not -path '*/build/*'
+          echo "== PNGs soltos fora de catálogos (podem competir com o AppIcon)"
+          find "$APPICON_DIR" -name '*.png' -not -path '*.xcassets/*' -not -path '*/build/*' || true
+          echo "== Info.plist: chaves de ícone"
+          grep -rn -A3 "CFBundleIcon" "$APPICON_DIR" --include=Info.plist || true
+
           if [ ! -d "$SET" ]; then
             echo "::error::$SET não existe. O tauri ios init não gerou o AppIcon."
             exit 1
           fi
+
+          # O template do Tauri já traz ícones padrão (não vazios). Sobrescreve sempre com os nossos.
+          echo "== Hash dos ícones do template ANTES de sobrescrever"
+          (cd "$SET" && shasum AppIcon-512@2x.png 2>/dev/null || true)
+          cp -f src-tauri/icons/ios/*.png "$SET"/
+
+          echo "== Conferência: hash origem x catálogo (devem ser iguais)"
+          FALHOU=0
+          for f in src-tauri/icons/ios/*.png; do
+            n="$(basename "$f")"
+            a="$(shasum "$f" | awk '{print $1}')"
+            b="$(shasum "$SET/$n" | awk '{print $1}')"
+            if [ "$a" != "$b" ]; then echo "DIFERENTE: $n"; FALHOU=1; fi
+          done
+          [ "$FALHOU" = "0" ] || { echo "::error::Ícones do catálogo diferem de src-tauri/icons/ios"; exit 1; }
+
           ENCONTROU=0
           for f in "$SET"/*.png; do
-            [ -e "$f" ] || continue
             L="$(sips -g pixelWidth "$f" | awk '/pixelWidth/ {print $2}')"
             A="$(sips -g pixelHeight "$f" | awk '/pixelHeight/ {print $2}')"
             if [ "$L" = "1024" ] && [ "$A" = "1024" ]; then ENCONTROU=1; fi
           done
-          if [ "$ENCONTROU" != "1" ]; then
-            echo "::error::Nenhum PNG 1024x1024 em $SET."
-            exit 1
-          fi
+          [ "$ENCONTROU" = "1" ] || { echo "::error::Nenhum PNG 1024x1024 em $SET."; exit 1; }
 
       - name: Instalar certificado e perfil
         env:
@@ -186,6 +208,29 @@ jobs:
           IPA="$(find src-tauri/gen/apple -name '*.ipa' | head -1)"
           if [ -z "$IPA" ]; then echo "Nenhum .ipa gerado"; exit 1; fi
           echo "path=$IPA" >> "$GITHUB_OUTPUT"
+
+      - name: Inspecionar ícones dentro do .ipa
+        run: |
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir -p "$RUNNER_TEMP/ipa" "$RUNNER_TEMP/icones-ipa"
+          unzip -q "${{ steps.ipa.outputs.path }}" -d "$RUNNER_TEMP/ipa"
+          APP="$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app | head -1)"
+          echo "App: $APP"
+          echo "== Info.plist: chaves de ícone"
+          plutil -p "$APP/Info.plist" | grep -i -B1 -A6 "icon" || echo "(nenhuma chave de ícone)"
+          echo "== PNGs de ícone soltos no .app"
+          ls -la "$APP" | grep -i "icon" || echo "(nenhum)"
+          echo "== Assets.car (renditions de ícone)"
+          xcrun assetutil --info "$APP/Assets.car" | grep -iE '"Name"|"PixelWidth"|"AssetType"' | grep -i -A2 "appicon" | head -60 || true
+          cp "$APP"/AppIcon*.png "$RUNNER_TEMP/icones-ipa/" 2>/dev/null || true
+          cp "$APP/Info.plist" "$RUNNER_TEMP/icones-ipa/" 2>/dev/null || true
+          cp "$APP/Assets.car" "$RUNNER_TEMP/icones-ipa/" 2>/dev/null || true
+          echo "ICONES_DIR=$RUNNER_TEMP/icones-ipa" >> "$GITHUB_ENV"
+
+      - name: Guardar ícones do .ipa para conferência
+        uses: actions/upload-artifact@v4
+        with:
+          name: icones-dentro-do-ipa
+          path: ${{ env.ICONES_DIR }}
 
       - name: Enviar ao TestFlight
         env:
