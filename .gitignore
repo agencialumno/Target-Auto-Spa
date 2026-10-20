@@ -32,3 +32,5 @@ __pycache__/
 *-firebase-adminsdk-*.json
 service-account*.json
 chave-service-account*.json
+
+.vercel
