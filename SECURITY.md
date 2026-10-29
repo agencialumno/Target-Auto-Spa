@@ -13,8 +13,8 @@ ou escreva para o responsável do projeto.
 | Dependências npm (app, produção) | 4 "high" restantes, todos da mesma cadeia `@grpc/grpc-js` dentro de `firebase`, sem correção publicada e não explorável aqui (ver A1) |
 | Dependências npm (`api-vercel`, `scripts/contas-teste`) | 0 vulnerabilidades (firebase-admin 13 para 14.5) |
 | Cargo (Tauri) | 7 avisos RustSec/GHSA, nenhum aplicável aos alvos iOS/Android (ver A3) |
-| Regras do Firestore | Reescritas e testadas (60 testes no emulador). **Ainda não publicadas: ação sua** |
-| API da Vercel | Endurecida (CORS, validação, limite por IP, erros genéricos), 19 testes |
+| Regras do Firestore | Reescritas e testadas (69 testes no emulador). **Ainda não publicadas: ação sua** |
+| API da Vercel | Endurecida (CORS, validação, limite por IP, erros genéricos), 24 testes |
 | CSP do app | Definida. **Precisa ser testada no TestFlight** |
 | Workflows | Actions fixadas por SHA, `GITHUB_TOKEN` somente leitura, `.ipa` não é mais publicado como artifact |
 | Conta `adm@target.com` | Senha fraca: **ação sua** (seção E) |
@@ -60,7 +60,7 @@ O plugin Swift da Apple tem só a dependência `Tauri`. Para cobrir o Gradle, ro
 
 ## B. Regras do Firestore (`firestore.rules`)
 
-Revisão linha a linha. Testes: `npm run test:rules` (emulador, 60 testes: anônimo, cliente, gerente, admin e insulfilm contra cada coleção, leituras e escritas permitidas e negadas).
+Revisão linha a linha. Testes: `npm run test:rules` (emulador, 69 testes: anônimo, cliente, gerente, admin e insulfilm contra cada coleção, leituras e escritas permitidas e negadas).
 
 | # | Achado | Severidade | Correção |
 |---|---|---|---|
@@ -91,7 +91,8 @@ Revisão linha a linha. Testes: `npm run test:rules` (emulador, 60 testes: anôn
 | C4 | Erros | Mensagens genéricas; o detalhe interno nunca vai na resposta (só o nome do erro no log). 401 sem pista sobre o motivo; 403 igual para "não admin" e "sem perfil" |
 | C5 | Cabeçalhos | `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` |
 | C6 | Autenticação | `verifyIdToken(token, true)` (confere revogação) e papel lido do Firestore. Nunca confia em dado do cliente |
-| C7 | Testes | 19 (`npm test` em `api-vercel/`): token ausente, formato errado, inválido, não admin e admin; CORS; validação; 429; erro interno sem vazamento |
+| C7 | Testes | 24 (`npm test` em `api-vercel/`): token ausente, formato errado, inválido, não admin e admin; CORS; validação; 429; erro interno sem vazamento |
+| C8 | Endpoint `POST /api/usuarios/condominio` | Admin troca ou remove o condomínio de um cliente ou gerente (Admin SDK, mesma validação de token). Só cliente e gerente; o condomínio precisa existir. `criar` também passou a exigir condomínio existente |
 
 **Proteção SSO da Vercel desligada.** Está desligada porque o app precisa chamar a API e não consegue fazer login na Vercel. O que dá para fazer a mais:
 - **Firewall da Vercel** (Projeto, Firewall): regra de rate limit por IP para `/api/usuarios/*` (ex.: 10 por minuto) e, se houver ataque, Attack Challenge Mode.

@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { criarUsuario, removerUsuario, ErroHttp } from '../_lib/usuarios.js';
+import { criarUsuario, removerUsuario, definirCondominio, ErroHttp } from '../_lib/usuarios.js';
 
 const SENHA = 'Abcdef1!x';
 
 // Firestore e Auth falsos, em memória
 function criarDeps({ papeis = {}, falhaGravar = false, tokenInvalido = false } = {}) {
-  const docs = new Map(Object.entries(papeis).map(([uid, role]) => [`users/${uid}`, { role }]));
+  const docs = new Map([
+    ...Object.entries(papeis).map(([uid, role]) => [`users/${uid}`, { role }]),
+    ['condominios/c1', { nome: 'C1' }],
+    ['condominios/c2', { nome: 'C2' }]
+  ]);
   const contas = new Map(); // uid -> email
   let seq = 0;
   const log = { deleteUser: [] };
@@ -46,6 +50,9 @@ function criarDeps({ papeis = {}, falhaGravar = false, tokenInvalido = false } =
         async set(v) {
           if (falhaGravar) throw new Error('falha');
           docs.set(caminho, v);
+        },
+        async update(v) {
+          docs.set(caminho, { ...docs.get(caminho), ...v });
         },
         async delete() {
           docs.delete(caminho);
@@ -150,4 +157,45 @@ test('remover: conta já inexistente no Authentication ainda limpa o perfil', as
   const d = criarDeps({ papeis: { a1: 'admin', c9: 'cliente' } });
   await removerUsuario(d, bearer('a1'), { uid: 'c9' }); // c9 não está em `contas`; user-not-found é ignorado
   assert.equal(d.docs.has('users/c9'), false);
+});
+
+test('criar: condomínio inexistente é recusado e nenhuma conta fica criada', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  assert.equal(await status(criarUsuario(d, bearer('a1'), { ...corpoValido, condominioId: 'nao-existe' })), 404);
+  assert.equal(d.contas.size, 0);
+});
+
+test('definirCondominio: exige token de admin', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin', c1: 'cliente', g1: 'gerente' } });
+  const corpo = { uid: 'c1', condominioId: 'c2' };
+  assert.equal(await status(definirCondominio(d, undefined, corpo)), 401);
+  assert.equal(await status(definirCondominio(criarDeps({ tokenInvalido: true }), bearer('a1'), corpo)), 401);
+  assert.equal(await status(definirCondominio(d, bearer('c1'), corpo)), 403);
+  assert.equal(await status(definirCondominio(d, bearer('g1'), corpo)), 403);
+  assert.equal(d.docs.get('users/c1').condominioId, undefined);
+});
+
+test('definirCondominio: admin troca e remove o condomínio de cliente e gerente', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin', c1: 'cliente', g1: 'gerente' } });
+  await definirCondominio(d, bearer('a1'), { uid: 'c1', condominioId: 'c2' });
+  assert.equal(d.docs.get('users/c1').condominioId, 'c2');
+  assert.equal(d.docs.get('users/c1').role, 'cliente', 'o papel não muda');
+  await definirCondominio(d, bearer('a1'), { uid: 'g1', condominioId: 'c1' });
+  assert.equal(d.docs.get('users/g1').condominioId, 'c1');
+  await definirCondominio(d, bearer('a1'), { uid: 'c1', condominioId: null });
+  assert.equal(d.docs.get('users/c1').condominioId, null);
+});
+
+test('definirCondominio: valida usuário, papel do alvo e existência do condomínio', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin', a2: 'admin', i1: 'insulfilm', c1: 'cliente' } });
+  const A = bearer('a1');
+  assert.equal(await status(definirCondominio(d, A, undefined)), 400);
+  assert.equal(await status(definirCondominio(d, A, { uid: '../x', condominioId: 'c1' })), 400);
+  assert.equal(await status(definirCondominio(d, A, { uid: 'c1', condominioId: '../x' })), 400);
+  assert.equal(await status(definirCondominio(d, A, { uid: 'c1', condominioId: 5 })), 400);
+  assert.equal(await status(definirCondominio(d, A, { uid: 'c1' })), 400, 'condominioId ausente não vale como null');
+  assert.equal(await status(definirCondominio(d, A, { uid: 'naoexiste', condominioId: 'c1' })), 404);
+  assert.equal(await status(definirCondominio(d, A, { uid: 'a2', condominioId: 'c1' })), 400, 'admin não tem condomínio');
+  assert.equal(await status(definirCondominio(d, A, { uid: 'i1', condominioId: 'c1' })), 400, 'insulfilm não tem condomínio');
+  assert.equal(await status(definirCondominio(d, A, { uid: 'c1', condominioId: 'inexistente' })), 404);
 });

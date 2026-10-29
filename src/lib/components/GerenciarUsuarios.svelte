@@ -1,7 +1,7 @@
 <script lang="ts">
   import { collection, getDocs } from 'firebase/firestore';
-  import { db, auth } from '$lib/firebase';
-  import { API_BASE } from '$lib/config';
+  import { db } from '$lib/firebase';
+  import { chamarApi } from '$lib/api';
   import { authStore, type Papel } from '$lib/auth.svelte';
   import Icone from '$lib/components/Icone.svelte';
 
@@ -33,6 +33,15 @@
   let condominioId = $state('');
   let salvando = $state(false);
   let erroForm = $state('');
+
+  // vínculo com condomínio (só cliente e gerente), feito pela API (as regras só deixam o próprio usuário definir uma vez)
+  let vinculando = $state<Usuario | null>(null);
+  let opcoesCondominio = $state<{ id: string; nome: string }[]>([]);
+  let escolhido = $state('');
+  let vinculandoSalvando = $state(false);
+  let erroVinculo = $state('');
+  const nomeCondominio = (id: string | null) =>
+    id ? (opcoesCondominio.find((c) => c.id === id)?.nome ?? id) : '';
 
   let removendo = $state<Usuario | null>(null);
   let apagando = $state(false);
@@ -67,6 +76,7 @@
 
   $effect(() => {
     carregar();
+    carregarCondominios();
   });
 
   function abrirForm() {
@@ -77,25 +87,6 @@
     condominioId = '';
     erroForm = '';
     formAberto = true;
-  }
-
-  // Chama a API da Vercel com o ID token do admin logado; erros vêm como { erro: "mensagem" }
-  async function chamarApi(caminho: string, corpo: object) {
-    const token = await auth.currentUser?.getIdToken();
-    if (!token) throw new Error('Sessão expirada. Entre novamente.');
-    let resposta: Response;
-    try {
-      resposta = await fetch(`${API_BASE}/api/usuarios/${caminho}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(corpo)
-      });
-    } catch {
-      throw new Error('Sem conexão com o servidor. Verifique a internet.');
-    }
-    const dados = await resposta.json().catch(() => ({}));
-    if (!resposta.ok) throw new Error(dados.erro ?? 'Erro inesperado no servidor.');
-    return dados;
   }
 
   const mensagem = (e: any, padrao: string) => e?.message || padrao;
@@ -118,6 +109,39 @@
       erroForm = mensagem(e, 'Não foi possível criar o usuário.');
     } finally {
       salvando = false;
+    }
+  }
+
+  async function carregarCondominios() {
+    try {
+      const snap = await getDocs(collection(db, 'condominios'));
+      opcoesCondominio = snap.docs
+        .map((d) => ({ id: d.id, nome: (d.data() as { nome?: string }).nome ?? d.id }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    } catch {
+      opcoesCondominio = [];
+    }
+  }
+
+  async function abrirVinculo(u: Usuario) {
+    erroVinculo = '';
+    escolhido = u.condominioId ?? '';
+    vinculando = u;
+    await carregarCondominios();
+  }
+
+  async function salvarVinculo() {
+    if (!vinculando) return;
+    vinculandoSalvando = true;
+    erroVinculo = '';
+    try {
+      await chamarApi('condominio', { uid: vinculando.uid, condominioId: escolhido || null });
+      vinculando = null;
+      await carregar();
+    } catch (e) {
+      erroVinculo = mensagem(e, 'Não foi possível alterar o condomínio.');
+    } finally {
+      vinculandoSalvando = false;
     }
   }
 
@@ -155,10 +179,15 @@
           <small>{u.email}</small>
           <small>
             <span class="papel">{nomePapel(u.role)}</span>
-            {#if u.condominioId}· {u.condominioId}{/if}
+            {#if u.condominioId}· {nomeCondominio(u.condominioId)}{/if}
           </small>
         </div>
         {#if u.uid !== authStore.usuario?.uid}
+          {#if u.role === 'cliente' || u.role === 'gerente'}
+            <button class="sec" aria-label={`Condomínio de ${u.nome || u.email}`} onclick={() => abrirVinculo(u)}>
+              Condomínio
+            </button>
+          {/if}
           <button
             class="remover"
             aria-label={`Remover ${u.nome || u.email}`}
@@ -216,6 +245,28 @@
       <button class="btn-secundario" type="button" onclick={() => (formAberto = false)}>
         Cancelar
       </button>
+    </form>
+  </div>
+{/if}
+
+{#if vinculando}
+  <div class="camada" role="dialog" aria-modal="true" aria-label="Condomínio do usuário">
+    <form class="caixa" onsubmit={(e) => (e.preventDefault(), salvarVinculo())}>
+      <h2>Condomínio</h2>
+      <p>{vinculando.nome || vinculando.email} ({nomePapel(vinculando.role)})</p>
+      <label class="campo">
+        <span>Condomínio</span>
+        <select bind:value={escolhido}>
+          <option value="">Sem condomínio</option>
+          {#each opcoesCondominio as c}<option value={c.id}>{c.nome}</option>{/each}
+        </select>
+        {#if opcoesCondominio.length === 0}<small>Cadastre um condomínio na aba Condomínios.</small>{/if}
+      </label>
+      {#if erroVinculo}<p class="erro">{erroVinculo}</p>{/if}
+      <button class="btn-primario" type="submit" disabled={vinculandoSalvando}>
+        {vinculandoSalvando ? 'Salvando...' : 'Salvar'}
+      </button>
+      <button class="btn-secundario" type="button" onclick={() => (vinculando = null)}>Cancelar</button>
     </form>
   </div>
 {/if}
@@ -296,6 +347,17 @@
     background: transparent;
     border: 1px solid var(--erro);
     color: var(--erro);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .sec {
+    flex: none;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--card-borda);
+    color: var(--texto);
     font-size: 0.8rem;
     font-weight: 600;
   }

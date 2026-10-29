@@ -26,6 +26,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { gerarNonce, sha256Hex } from "./nonce";
 import { erroApple, mensagemErroApple, traduzErro } from "./auth-erros";
 import { resumoToken } from "./jwt";
+import { normalizarNome } from "./condominio";
 
 const TIMEOUT_MS = 15000;
 
@@ -203,12 +204,12 @@ class Auth {
     this.erro = "";
   }
 
-  // Busca o condomínio pelo nome (case-insensitive simples) e vincula ao usuário logado
+  // Busca o condomínio pelo nome normalizado (mesma função do cadastro no painel admin) e vincula ao usuário logado
   async entrarNoCondominio(
     nomeBuscado: string,
   ): Promise<"ok" | "nao-encontrado"> {
     if (!this.usuario) throw new Error("Não autenticado");
-    const nomeNormalizado = nomeBuscado.trim().toLowerCase();
+    const nomeNormalizado = normalizarNome(nomeBuscado);
     const q = query(
       collection(db, "condominios"),
       where("nomeNormalizado", "==", nomeNormalizado),

@@ -6,15 +6,17 @@
   import { niveis } from '$lib/niveis';
   import { dataCurta } from '$lib/formato';
   import GerenciarUsuarios from '$lib/components/GerenciarUsuarios.svelte';
+  import GerenciarCondominios from '$lib/components/GerenciarCondominios.svelte';
 
-  type Aba = 'resumo' | 'agendamentos' | 'precos' | 'avaliacoes' | 'usuarios';
+  type Aba = 'resumo' | 'agendamentos' | 'precos' | 'avaliacoes' | 'usuarios' | 'condominios';
 
   const abas: { id: Aba; nome: string }[] = [
     { id: 'resumo', nome: 'Resumo' },
     { id: 'agendamentos', nome: 'Agendamentos' },
     { id: 'precos', nome: 'Preços' },
     { id: 'avaliacoes', nome: 'Avaliações' },
-    { id: 'usuarios', nome: 'Usuários' }
+    { id: 'usuarios', nome: 'Usuários' },
+    { id: 'condominios', nome: 'Condomínios' }
   ];
 
   let aba = $state<Aba>('resumo');
@@ -53,7 +55,9 @@
       {/each}
     </div>
 
-    {#if aba === 'usuarios'}
+    {#if aba === 'condominios'}
+      <GerenciarCondominios />
+    {:else if aba === 'usuarios'}
       <GerenciarUsuarios />
     {:else if aba === 'resumo'}
       <div class="kpis">

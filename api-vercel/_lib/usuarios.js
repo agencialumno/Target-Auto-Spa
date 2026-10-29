@@ -82,6 +82,12 @@ export async function criarUsuario(deps, authorization, corpo) {
     );
   }
 
+  // Condomínio informado precisa existir (cliente e gerente)
+  const vinculado = role === 'cliente' || role === 'gerente' ? condominioId : null;
+  if (vinculado && !(await db.doc(`condominios/${vinculado}`).get()).exists) {
+    throw new ErroHttp(404, 'Condomínio não encontrado.');
+  }
+
   let usuario;
   try {
     usuario = await auth.createUser({ email, password: senha, displayName: nome });
@@ -137,4 +143,37 @@ export async function removerUsuario(deps, authorization, corpo) {
   await db.doc(`users/${uid}`).delete();
 
   return { ok: true };
+}
+
+// Troca (ou remove) o condomínio de um cliente ou gerente. O próprio usuário só define o condomínio
+// uma vez (firestore.rules); mudanças posteriores passam por aqui, com o Admin SDK.
+export async function definirCondominio(deps, authorization, corpo) {
+  const { db } = deps;
+  await exigirAdmin(deps, authorization);
+
+  exigirObjeto(corpo);
+  const uid = texto(corpo.uid);
+  if (!UID_RE.test(uid)) throw new ErroHttp(400, 'Usuário inválido.');
+
+  const pedido = corpo.condominioId;
+  if (pedido !== null && typeof pedido !== 'string') throw new ErroHttp(400, 'Condomínio inválido.');
+  const condominioId = pedido === null ? null : texto(pedido);
+  if (condominioId !== null && !CONDOMINIO_RE.test(condominioId)) {
+    throw new ErroHttp(400, 'Condomínio inválido.');
+  }
+
+  const alvo = await db.doc(`users/${uid}`).get();
+  if (!alvo.exists) throw new ErroHttp(404, 'Usuário não encontrado.');
+  const role = alvo.data().role;
+  if (role !== 'cliente' && role !== 'gerente') {
+    throw new ErroHttp(400, 'Só clientes e gerentes pertencem a um condomínio.');
+  }
+
+  if (condominioId !== null) {
+    const condo = await db.doc(`condominios/${condominioId}`).get();
+    if (!condo.exists) throw new ErroHttp(404, 'Condomínio não encontrado.');
+  }
+
+  await db.doc(`users/${uid}`).update({ condominioId });
+  return { ok: true, uid, condominioId };
 }

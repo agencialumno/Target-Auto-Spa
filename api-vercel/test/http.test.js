@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { endpoint, criarLimitador, origensPermitidas, ipDe } from '../_lib/http.js';
-import { criarUsuario, removerUsuario } from '../_lib/usuarios.js';
+import { criarUsuario, removerUsuario, definirCondominio } from '../_lib/usuarios.js';
 
 const SENHA = 'Abcdef1!x';
 
@@ -32,7 +32,8 @@ function fakeReq({ metodo = 'POST', origem, auth, corpo, tipo = 'application/jso
 function deps() {
   const docs = new Map([
     ['users/adm1', { role: 'admin' }],
-    ['users/cli1', { role: 'cliente' }]
+    ['users/cli1', { role: 'cliente' }],
+    ['condominios/c2', { nome: 'C2' }]
   ]);
   const contas = new Set();
   return {
@@ -54,6 +55,7 @@ function deps() {
       doc: (c) => ({
         get: async () => ({ exists: docs.has(c), data: () => docs.get(c) }),
         set: async (v) => void docs.set(c, v),
+        update: async (v) => void docs.set(c, { ...docs.get(c), ...v }),
         delete: async () => void docs.delete(c)
       }),
       collection: () => ({
@@ -212,4 +214,16 @@ test('limite de tentativas por IP: 429 depois do máximo, outro IP não é afeta
 test('ipDe usa o primeiro IP do x-forwarded-for', () => {
   assert.equal(ipDe({ headers: { 'x-forwarded-for': '203.0.113.5, 10.0.0.1' } }), '203.0.113.5');
   assert.equal(ipDe({ headers: { 'x-real-ip': '198.51.100.1' } }), '198.51.100.1');
+});
+
+test('endpoint condominio: sem token, não-admin e admin', async () => {
+  const { h, d } = montar(definirCondominio);
+  const corpoC = { uid: 'cli1', condominioId: 'c2' };
+  assert.equal((await chamar(h, fakeReq({ corpo: corpoC }))).codigo, 401);
+  assert.equal((await chamar(h, fakeReq({ auth: 'Bearer lixo', corpo: corpoC }))).codigo, 401);
+  assert.equal((await chamar(h, fakeReq({ auth: 'Bearer cli1', corpo: corpoC }))).codigo, 403);
+  assert.equal(d.docs.get('users/cli1').condominioId, undefined);
+  const ok = await chamar(h, fakeReq({ auth: 'Bearer adm1', corpo: corpoC }));
+  assert.equal(ok.codigo, 200);
+  assert.equal(d.docs.get('users/cli1').condominioId, 'c2');
 });

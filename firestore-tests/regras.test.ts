@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment
 } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 
 // Roda contra o Firebase Emulator: `npm run test:rules`
 let env: RulesTestEnvironment;
@@ -388,5 +388,46 @@ describe('negar tudo que não está liberado', () => {
   it('o chat sem a subcoleção "mensagens" também é negado', async () => {
     await assertFails(setDoc(doc(como('adm'), 'chats', 'ana'), { a: 1 }));
     await assertFails(getDoc(doc(como('adm'), 'chats', 'ana')));
+  });
+});
+
+describe('cadastro de condomínios pelo admin (tela /admin)', () => {
+  const dados = { nome: 'Torre Nova', nomeNormalizado: 'torre nova' };
+
+  it('admin cria, edita e remove', async () => {
+    await assertSucceeds(setDoc(doc(como('adm'), 'condominios', 'torre-nova'), dados));
+    await assertSucceeds(updateDoc(doc(como('adm'), 'condominios', 'torre-nova'), { nome: 'Torre Dez', nomeNormalizado: 'torre dez' }));
+    await assertSucceeds(deleteDoc(doc(como('adm'), 'condominios', 'torre-nova')));
+  });
+
+  it.each(['anonimo', 'cliente', 'gerente', 'insulfilm'] as const)('%s não cria, edita nem remove', async (papel) => {
+    const db = como(quem[papel]);
+    await assertFails(setDoc(doc(db, 'condominios', 'torre-nova'), dados));
+    await assertFails(updateDoc(doc(db, 'condominios', 'c1'), { nome: 'Invadido', nomeNormalizado: 'invadido' }));
+    await assertFails(deleteDoc(doc(db, 'condominios', 'c1')));
+  });
+
+  it('um cliente não consegue se promover a admin para depois escrever em condominios', async () => {
+    await assertFails(updateDoc(doc(como('ana'), 'users', 'ana'), { role: 'admin' }));
+    await assertFails(setDoc(doc(como('ana'), 'condominios', 'x'), dados));
+  });
+
+  it('listagem da tela: admin lê todos os usuários e conta agendamentos por condomínio', async () => {
+    await assertSucceeds(getDocs(collection(como('adm'), 'users')));
+    await assertSucceeds(getDocs(collection(como('adm'), 'condominios')));
+    await assertSucceeds(getCountFromServer(query(collection(como('adm'), 'agendamentos'), where('condominioId', '==', 'c1'))));
+    await assertSucceeds(getCountFromServer(query(collection(como('adm'), 'users'), where('condominioId', '==', 'c1'))));
+  });
+
+  it('gerente e cliente não conseguem contar usuários nem agendamentos de um condomínio inteiro', async () => {
+    await assertFails(getCountFromServer(query(collection(como('ana'), 'users'), where('condominioId', '==', 'c1'))));
+    await assertFails(getCountFromServer(query(collection(como('gui'), 'users'), where('condominioId', '==', 'c1'))));
+    await assertFails(getCountFromServer(query(collection(como('ana'), 'agendamentos'), where('condominioId', '==', 'c1'))));
+  });
+
+  it('vínculo de gerente/cliente: o próprio usuário não troca o condomínio (só a API do admin troca)', async () => {
+    await assertFails(updateDoc(doc(como('gui'), 'users', 'gui'), { condominioId: 'c2' }));
+    await assertFails(updateDoc(doc(como('ana'), 'users', 'ana'), { condominioId: 'c2' }));
+    await assertFails(updateDoc(doc(como('adm'), 'users', 'gui'), { condominioId: 'c2' })); // admin pelo cliente também não: usa a API
   });
 });
