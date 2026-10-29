@@ -13,6 +13,17 @@ export class ErroHttp extends Error {
 
 const texto = (v) => (typeof v === 'string' ? v.trim() : '');
 
+const LIMITES = { nome: 100, email: 254, senha: 128, condominioId: 100, uid: 128 };
+// uid do Firebase Auth: alfanumérico; condomínio: id de documento simples
+const UID_RE = /^[A-Za-z0-9]{1,128}$/;
+const CONDOMINIO_RE = /^[A-Za-z0-9_-]{1,100}$/;
+
+function exigirObjeto(corpo) {
+  if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) {
+    throw new ErroHttp(400, 'Corpo inválido.');
+  }
+}
+
 export const senhaForte = (s) =>
   typeof s === 'string' &&
   s.length >= 8 &&
@@ -45,14 +56,24 @@ export async function criarUsuario(deps, authorization, corpo) {
   const { auth, db } = deps;
   await exigirAdmin(deps, authorization);
 
-  const nome = texto(corpo?.nome);
-  const email = texto(corpo?.email).toLowerCase();
-  const senha = corpo?.senha;
-  const role = corpo?.role;
-  const condominioId = texto(corpo?.condominioId) || null;
+  exigirObjeto(corpo);
+  const nome = texto(corpo.nome);
+  const email = texto(corpo.email).toLowerCase();
+  const senha = corpo.senha;
+  const role = corpo.role;
+  const condominioId = texto(corpo.condominioId) || null;
 
   if (!nome) throw new ErroHttp(400, 'Informe o nome.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ErroHttp(400, 'E-mail inválido.');
+  if (nome.length > LIMITES.nome) throw new ErroHttp(400, 'Nome grande demais.');
+  if (email.length > LIMITES.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new ErroHttp(400, 'E-mail inválido.');
+  }
+  if (typeof senha === 'string' && senha.length > LIMITES.senha) {
+    throw new ErroHttp(400, 'Senha grande demais.');
+  }
+  if (condominioId && !CONDOMINIO_RE.test(condominioId)) {
+    throw new ErroHttp(400, 'Condomínio inválido.');
+  }
   if (!PAPEIS.includes(role)) throw new ErroHttp(400, 'Papel inválido.');
   if (!senhaForte(senha)) {
     throw new ErroHttp(
@@ -92,8 +113,9 @@ export async function removerUsuario(deps, authorization, corpo) {
   const { auth, db } = deps;
   const adminUid = await exigirAdmin(deps, authorization);
 
-  const uid = texto(corpo?.uid);
-  if (!uid) throw new ErroHttp(400, 'Informe o usuário.');
+  exigirObjeto(corpo);
+  const uid = texto(corpo.uid);
+  if (!UID_RE.test(uid)) throw new ErroHttp(400, 'Usuário inválido.');
   if (uid === adminUid) throw new ErroHttp(400, 'Você não pode remover a própria conta.');
 
   const alvo = await db.doc(`users/${uid}`).get();

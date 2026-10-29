@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Cria contas de teste (uma por papel) no Firebase. Separado do app para não entrar no build.",
   "dependencies": {
-    "firebase-admin": "^13.0.0"
+    "firebase-admin": "^14.5.0"
   }
 }

@@ -17,6 +17,8 @@
   async function sair() {
     // Antes só navegava para "/": o Firebase continuava logado e o login redirecionava de volta
     await authStore.sair();
+    // Apaga do aparelho os dados locais (fotos, placa, agendamentos de demonstração) da conta que saiu
+    app.resetar();
     reserva.reiniciar();
     await goto('/', { replaceState: true });
   }

@@ -2,63 +2,166 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------- Funções auxiliares ----------
+
     function logado() {
       return request.auth != null;
     }
 
+    // Perfil de quem faz a requisição (lido do Firestore, nunca do token nem do cliente)
     function meuPerfil() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function tenhoPerfil() {
+      return logado() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function souAdmin() {
-      return logado() && meuPerfil().role == 'admin';
+      return tenhoPerfil() && meuPerfil().role == 'admin';
     }
 
+    // condominioId nulo NUNCA dá acesso: null == null seria verdadeiro e liberaria tudo
     function souGerenteDoCondominio(condominioId) {
-      return logado() && meuPerfil().role == 'gerente' && meuPerfil().condominioId == condominioId;
+      return tenhoPerfil()
+        && meuPerfil().role == 'gerente'
+        && meuPerfil().condominioId != null
+        && meuPerfil().condominioId == condominioId;
     }
 
-    // Perfil do usuário: só ele mesmo lê/edita o próprio, admin lê todos
+    // Campos que mudaram entre o documento atual e o enviado
+    function camposAlterados() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ---------- Perfis ----------
     match /users/{userId} {
+      // Cada um lê o próprio perfil; admin lê todos
       allow read: if logado() && (request.auth.uid == userId || souAdmin());
-      // Criação: só o próprio usuário, e só pode se autoatribuir o papel "cliente"
-      allow create: if request.auth.uid == userId
-                    && request.resource.data.role == 'cliente';
-      // Atualização: só o próprio usuário, e não pode mudar o próprio papel
-      allow update: if request.auth.uid == userId
-                    && request.resource.data.role == resource.data.role;
+
+      // Cadastro: só o próprio usuário, sempre como cliente e SEM condomínio
+      allow create: if logado()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['nome', 'email', 'role', 'condominioId'])
+        && request.resource.data.keys().hasAll(['nome', 'email', 'role', 'condominioId'])
+        && request.resource.data.role == 'cliente'
+        && request.resource.data.condominioId == null
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() <= 100
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254;
+
+      // Edição pelo dono:
+      //  - nunca muda role nem e-mail;
+      //  - nome: livre (até 100 caracteres);
+      //  - condominioId: só pode sair de null para um condomínio que EXISTE em /condominios
+      //    (uma vez definido, só o painel admin/console altera). Isso impede que alguém
+      //    se mude para outro condomínio para aparecer para outro gerente.
+      allow update: if logado()
+        && request.auth.uid == userId
+        && camposAlterados().hasOnly(['nome', 'condominioId'])
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() <= 100
+        && (
+          !('condominioId' in camposAlterados())
+          || (
+            resource.data.condominioId == null
+            && request.resource.data.condominioId is string
+            && exists(/databases/$(database)/documents/condominios/$(request.resource.data.condominioId))
+          )
+        );
+
+      // Papéis só mudam pelo console do Firebase ou pela API do admin (Admin SDK, ignora regras)
+      allow delete: if false;
     }
 
-    // Condomínios: qualquer usuário logado pode ler (para buscar pelo nome), só admin escreve
+    // ---------- Condomínios ----------
     match /condominios/{condominioId} {
       allow read: if logado();
       allow write: if souAdmin();
     }
 
-    // Catálogo de serviços: leitura pública para logados, escrita só admin
+    // ---------- Catálogo de serviços ----------
     match /servicos/{servicoId} {
       allow read: if logado();
       allow write: if souAdmin();
     }
 
-    // Agendamentos: cliente dono, gerente do mesmo condomínio, ou admin
+    // ---------- Agendamentos ----------
+    // Cliente: os próprios. Gerente: os do próprio condomínio. Admin: todos.
+    // O papel "insulfilm" ainda não tem regra (a agenda dele não foi migrada): negado.
     match /agendamentos/{agendamentoId} {
       allow read: if logado() && (
-        resource.data.clienteId == request.auth.uid ||
-        souGerenteDoCondominio(resource.data.condominioId) ||
-        souAdmin()
+        resource.data.clienteId == request.auth.uid
+        || souGerenteDoCondominio(resource.data.condominioId)
+        || souAdmin()
       );
-      allow create: if logado() && request.resource.data.clienteId == request.auth.uid;
+
+      // O cliente só cria agendamento próprio, no próprio condomínio e como "agendado"
+      allow create: if tenhoPerfil()
+        && request.resource.data.clienteId == request.auth.uid
+        && meuPerfil().condominioId != null
+        && request.resource.data.condominioId == meuPerfil().condominioId
+        && request.resource.data.status == 'agendado';
+
       allow update: if logado() && (
-        resource.data.clienteId == request.auth.uid ||
-        souGerenteDoCondominio(resource.data.condominioId) ||
-        souAdmin()
+        // Cliente dono: só a avaliação (não pode se autodeclarar "finalizado" nem mudar dono/condomínio)
+        (resource.data.clienteId == request.auth.uid
+          && camposAlterados().hasOnly(['avaliacao']))
+        // Gerente do condomínio: atualiza andamento, mas não troca dono nem condomínio
+        || (souGerenteDoCondominio(resource.data.condominioId)
+          && !camposAlterados().hasAny(['clienteId', 'condominioId']))
+        || souAdmin()
       );
+
+      allow delete: if souAdmin();
     }
 
-    // Mensagens de chat: cliente dono da conversa, ou gerente do mesmo condomínio
+    // ---------- Chat ----------
+    // chatId = uid do cliente dono da conversa.
+    // Participam: o cliente, o gerente do condomínio dele e o admin.
     match /chats/{chatId}/mensagens/{msgId} {
-      allow read, create: if logado();
+      function souDonoDaConversa() {
+        return logado() && request.auth.uid == chatId;
+      }
+
+      function souGerenteDaConversa() {
+        return tenhoPerfil()
+          && meuPerfil().role == 'gerente'
+          && meuPerfil().condominioId != null
+          && exists(/databases/$(database)/documents/users/$(chatId))
+          && get(/databases/$(database)/documents/users/$(chatId)).data.condominioId == meuPerfil().condominioId;
+      }
+
+      function participante() {
+        return souDonoDaConversa() || souGerenteDaConversa() || souAdmin();
+      }
+
+      allow read: if participante();
+
+      // Quem escreve só pode assinar como o próprio lado da conversa
+      allow create: if participante()
+        && request.resource.data.keys().hasOnly(['de', 'texto', 'hora', 'lida'])
+        && request.resource.data.keys().hasAll(['de', 'texto', 'hora'])
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() > 0
+        && request.resource.data.texto.size() <= 2000
+        && request.resource.data.hora is string
+        && request.resource.data.hora.size() <= 10
+        && (
+          (souDonoDaConversa() && request.resource.data.de == 'cliente')
+          || ((souGerenteDaConversa() || souAdmin()) && request.resource.data.de == 'gerente')
+        );
+
+      // Só marcar como lida
+      allow update: if participante() && camposAlterados().hasOnly(['lida']);
+
+      allow delete: if false;
+    }
+
+    // Tudo o que não foi liberado acima fica bloqueado
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

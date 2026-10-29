@@ -1,0 +1,9 @@
+# Usa as regras padrão do gitleaks e libera só o que é público por definição.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Chave de API do Firebase (cliente): pública por design; a proteção é o firestore.rules e as restrições da chave no Google Cloud"
+paths = ['''src/lib/firebase\.ts''']
+regexTarget = "match"
+regexes = ['''AIzaSyCZ-jCllQs0VDOW7dI_By2lie8BlYe8JOk''']
