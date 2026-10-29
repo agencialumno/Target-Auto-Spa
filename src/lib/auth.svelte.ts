@@ -24,16 +24,8 @@ import { auth, db } from "./firebase";
 import { depuracao } from "./debug.svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { gerarNonce, sha256Hex } from "./nonce";
-
-// Erros do plugin chegam como texto (reject do Swift), não como { code }
-function erroApple(e: any): string {
-  if (e?.code) return e.code;
-  const msg = String(e?.message ?? e ?? "");
-  // 1001 = ASAuthorizationError.canceled
-  if (/1001|canceled|cancelled/i.test(msg)) return "apple/cancelado";
-  if (/not allowed|command .* not found|plugin/i.test(msg)) return "apple/indisponivel";
-  return "apple/erro";
-}
+import { erroApple, mensagemErroApple, traduzErro } from "./auth-erros";
+import { resumoToken } from "./jwt";
 
 const TIMEOUT_MS = 15000;
 
@@ -161,6 +153,10 @@ class Auth {
         throw { code: "apple/sem-token" };
       }
 
+      // Campos não secretos do token (aud deve ser o bundle ID); só aparece no painel de depuração
+      const r = resumoToken(apple.identityToken);
+      depuracao.registrar(`apple token: aud=${r.aud} iss=${r.iss}`);
+
       const credencial = new OAuthProvider("apple.com").credential({
         idToken: apple.identityToken,
         rawNonce,
@@ -178,7 +174,7 @@ class Auth {
       depuracao.registrar("apple: ok");
     } catch (e: any) {
       const codigo = erroApple(e);
-      this.erro = traduzErro(codigo);
+      this.erro = mensagemErroApple(codigo);
       depuracao.registrar(`erro apple: ${codigo} ${e?.message ?? e}`);
       throw e;
     }
@@ -228,28 +224,6 @@ class Auth {
     this.perfil = await this.buscarPerfil(this.usuario.uid);
     return "ok";
   }
-}
-
-function traduzErro(codigo?: string) {
-  const mapa: Record<string, string> = {
-    "auth/email-already-in-use": "Este e-mail já tem uma conta.",
-    "auth/invalid-email": "E-mail inválido.",
-    "auth/weak-password": "A senha precisa ter pelo menos 6 caracteres.",
-    "auth/user-not-found": "E-mail ou senha incorretos.",
-    "auth/wrong-password": "E-mail ou senha incorretos.",
-    "auth/invalid-credential": "E-mail ou senha incorretos.",
-    "auth/popup-closed-by-user": "Login cancelado.",
-    "apple/cancelado": "Login cancelado.",
-    "apple/indisponivel": "Entrar com Apple só está disponível no app para iPhone.",
-    "apple/sem-token": "A Apple não devolveu a credencial. Tente novamente.",
-    "auth/network-request-failed": "Sem conexão com o Firebase. Verifique a internet.",
-  };
-  if (codigo?.startsWith("timeout/")) {
-    return `Tempo esgotado ao falar com o Firebase (${codigo}).`;
-  }
-  const texto = mapa[codigo ?? ""];
-  if (texto) return texto;
-  return `Não foi possível completar. Tente novamente. (${codigo ?? "erro desconhecido"})`;
 }
 
 export const authStore = new Auth();

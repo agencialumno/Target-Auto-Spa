@@ -72,6 +72,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Rodar testes
+        run: npm test
+
       - name: Gerar projeto Android
         run: npm run tauri android init -- --ci
 

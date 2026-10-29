@@ -11,7 +11,9 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "icones": "node scripts/preparar-imagens.mjs && tauri icon assets-origem/icone-1024.png && node scripts/achatar-icones-ios.mjs"
+    "icones": "node scripts/preparar-imagens.mjs && tauri icon assets-origem/icone-1024.png && node scripts/achatar-icones-ios.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "license": "MIT",
   "dependencies": {
@@ -29,6 +31,7 @@
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^5.0.5"
   }
 }

@@ -67,6 +67,9 @@ jobs:
           npm ci
           brew install xcodegen
 
+      - name: Rodar testes
+        run: npm test
+
       - name: Definir número do build
         run: |
           # +100 garante ficar acima de qualquer build já enviado (inclusive os do Codemagic)
