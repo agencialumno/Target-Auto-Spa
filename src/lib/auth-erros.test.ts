@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { erroApple, mensagemErroApple, traduzErro } from './auth-erros';
+import { erroApple, erroGoogle, mensagemErroApple, mensagemErroGoogle, traduzErro } from './auth-erros';
 import { resumoToken } from './jwt';
 
 describe('traduzErro', () => {
@@ -14,6 +14,11 @@ describe('traduzErro', () => {
     ['apple/cancelado', 'Login cancelado.'],
     ['apple/indisponivel', 'Entrar com Apple só está disponível no app para iPhone.'],
     ['apple/sem-token', 'A Apple não devolveu a credencial. Tente novamente.'],
+    ['google/cancelado', 'Login cancelado.'],
+    ['google/indisponivel', 'Entrar com Google só está disponível no app para iPhone e Android.'],
+    ['google/sem-token', 'O Google não devolveu a credencial. Tente novamente.'],
+    ['google/nao-configurado', 'Login com Google ainda não configurado neste app.'],
+    ['auth/account-exists-with-different-credential', 'Já existe uma conta com este e-mail por outro método de login.'],
     ['auth/network-request-failed', 'Sem conexão com o Firebase. Verifique a internet.']
   ];
 
@@ -100,5 +105,42 @@ describe('resumoToken', () => {
   it('token malformado devolve objeto vazio', () => {
     expect(resumoToken('lixo')).toEqual({});
     expect(resumoToken('')).toEqual({});
+  });
+});
+
+describe('erroGoogle', () => {
+  it('usa o code quando vem do Firebase', () => {
+    expect(erroGoogle({ code: 'auth/invalid-credential' })).toBe('auth/invalid-credential');
+  });
+
+  it.each([
+    'User cancelled the sign-in flow',
+    'Sign-in cancelled: activity is cancelled by the user',
+    "The operation couldn't be completed. (com.apple.AuthenticationServices.WebAuthenticationSession error 1.)"
+  ])('cancelamento: %s', (msg) => {
+    expect(erroGoogle(msg)).toBe('google/cancelado');
+    expect(erroGoogle(new Error(msg))).toBe('google/cancelado');
+  });
+
+  it('plugin ausente e erro desconhecido', () => {
+    expect(erroGoogle('Command sign_in not found')).toBe('google/indisponivel');
+    expect(erroGoogle('Developer console is not set up correctly [28444]')).toBe('google/erro');
+    expect(erroGoogle(undefined)).toBe('google/erro');
+  });
+});
+
+describe('mensagemErroGoogle', () => {
+  it('invalid-credential mostra o código e não fala de e-mail e senha', () => {
+    const m = mensagemErroGoogle('auth/invalid-credential');
+    expect(m).toContain('auth/invalid-credential');
+    expect(m).not.toMatch(/e-mail ou senha/i);
+  });
+
+  it('cancelamento fica só "Login cancelado."', () => {
+    expect(mensagemErroGoogle('google/cancelado')).toBe('Login cancelado.');
+  });
+
+  it('código desconhecido aparece uma única vez', () => {
+    expect(mensagemErroGoogle('google/erro').match(/google\/erro/g)).toHaveLength(1);
   });
 });

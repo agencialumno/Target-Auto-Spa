@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "sign-in-with-apple:default"
+    "sign-in-with-apple:default",
+    "google-auth:default"
   ]
 }

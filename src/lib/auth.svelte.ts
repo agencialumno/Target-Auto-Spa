@@ -1,7 +1,6 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signInWithCredential,
   GoogleAuthProvider,
   OAuthProvider,
@@ -24,9 +23,16 @@ import { auth, db } from "./firebase";
 import { depuracao } from "./debug.svelte";
 import { invoke } from "@tauri-apps/api/core";
 import { gerarNonce, sha256Hex } from "./nonce";
-import { erroApple, mensagemErroApple, traduzErro } from "./auth-erros";
+import { erroApple, erroGoogle, mensagemErroApple, mensagemErroGoogle, traduzErro } from "./auth-erros";
+import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "./config";
 import { resumoToken } from "./jwt";
 import { normalizarNome } from "./condominio";
+
+// iOS usa o client ID "iOS"; Android (fluxo nativo) usa o client ID "Aplicativo da Web"
+function clientIdGoogle(): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  return /iPhone|iPad|iPod/i.test(ua) ? GOOGLE_IOS_CLIENT_ID : GOOGLE_WEB_CLIENT_ID;
+}
 
 const TIMEOUT_MS = 15000;
 
@@ -120,15 +126,42 @@ class Auth {
     }
   }
 
-  // Google e Apple usam signInWithPopup, que não funciona no WebView do Tauri/iOS.
-  // Precisam de outro fluxo (signInWithRedirect com URL scheme customizado, ou plugin nativo de OAuth).
+  // Google nativo (plugin tauri-plugin-google-auth, iOS e Android): o plugin devolve o idToken e o
+  // app o entrega ao Firebase com GoogleAuthProvider.credential() + signInWithCredential().
   async entrarComGoogle() {
     this.erro = "";
     try {
-      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
-      await this.garantirPerfil(cred.user);
+      const clientId = clientIdGoogle();
+      if (!clientId) throw { code: "google/nao-configurado" };
+      depuracao.registrar("google: abrindo login nativo");
+
+      // Sem timeout aqui: a pessoa pode demorar escolhendo a conta
+      const google = await invoke<{
+        idToken?: string | null;
+        accessToken?: string | null;
+      }>("plugin:google-auth|sign_in", {
+        payload: { clientId, scopes: ["openid", "email", "profile"] },
+      });
+      if (!google.idToken) throw { code: "google/sem-token" };
+
+      const r = resumoToken(google.idToken);
+      depuracao.registrar(`google token: aud=${r.aud} iss=${r.iss}`);
+
+      const credencial = GoogleAuthProvider.credential(
+        google.idToken,
+        google.accessToken ?? undefined,
+      );
+      const cred = await comTimeout(
+        signInWithCredential(auth, credencial),
+        "google",
+      );
+      // Usuário novo vira cliente sem condomínio (o firestore.rules exige); existente não é alterado
+      await comTimeout(this.garantirPerfil(cred.user), "google-perfil");
+      depuracao.registrar("google: ok");
     } catch (e: any) {
-      this.erro = traduzErro(e.code);
+      const codigo = erroGoogle(e);
+      this.erro = mensagemErroGoogle(codigo);
+      depuracao.registrar(`erro google: ${codigo} ${e?.message ?? e}`);
       throw e;
     }
   }

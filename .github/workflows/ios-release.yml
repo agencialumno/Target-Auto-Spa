@@ -85,6 +85,35 @@ jobs:
           echo "tauri.conf.json bundle.iOS:"
           node -e "console.log(JSON.stringify(require('./src-tauri/tauri.conf.json').bundle.iOS))"
 
+      # O Google Sign-In devolve o resultado por um URL scheme = client ID do iOS invertido
+      # (com.googleusercontent.apps.<id>). Lê GOOGLE_IOS_CLIENT_ID de src/lib/config.ts e grava em
+      # src-tauri/Info.ios.plist, que o Tauri mescla no Info.plist gerado. Vazio: só avisa.
+      - name: Configurar URL scheme do Google Sign-In
+        run: |
+          CID="$(grep -oE 'GOOGLE_IOS_CLIENT_ID *= *"[^"]*"' src/lib/config.ts | sed -E 's/.*"([^"]*)"/\1/')"
+          if [ -z "$CID" ]; then
+            echo "::warning::GOOGLE_IOS_CLIENT_ID vazio em src/lib/config.ts: o login com Google não vai funcionar neste build."
+            exit 0
+          fi
+          case "$CID" in
+            *.apps.googleusercontent.com) ;;
+            *) echo "::error::GOOGLE_IOS_CLIENT_ID deve terminar em .apps.googleusercontent.com"; exit 1 ;;
+          esac
+          REV="com.googleusercontent.apps.${CID%.apps.googleusercontent.com}"
+          P=src-tauri/Info.ios.plist
+          PB=/usr/libexec/PlistBuddy
+          $PB -c "Delete :CFBundleURLTypes" "$P" 2>/dev/null || true
+          $PB -c "Add :CFBundleURLTypes array" "$P"
+          $PB -c "Add :CFBundleURLTypes:0 dict" "$P"
+          $PB -c "Add :CFBundleURLTypes:0:CFBundleURLName string google" "$P"
+          $PB -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$P"
+          $PB -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $REV" "$P"
+          $PB -c "Delete :LSApplicationQueriesSchemes" "$P" 2>/dev/null || true
+          $PB -c "Add :LSApplicationQueriesSchemes array" "$P"
+          $PB -c "Add :LSApplicationQueriesSchemes:0 string googlechrome" "$P"
+          $PB -c "Add :LSApplicationQueriesSchemes:1 string safari" "$P"
+          echo "URL scheme: $REV"
+
       - name: Gerar projeto iOS
         run: npm run tauri ios init -- --ci
 
@@ -109,6 +138,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :com.apple.developer.applesignin:0 string Default" "$ENT"
           echo "== depois"; cat "$ENT"
           grep -n "entitlements\|CODE_SIGN_ENTITLEMENTS" src-tauri/gen/apple/project.yml || echo "(project.yml não cita entitlements)"
+
+      - name: Conferir URL scheme no Info.plist gerado
+        run: |
+          grep -rn -A6 "CFBundleURLTypes" src-tauri/gen/apple --include=Info.plist || echo "(sem CFBundleURLTypes: Google Sign-In sem client ID do iOS configurado)"
 
       - name: Conferir versão no projeto gerado
         run: |

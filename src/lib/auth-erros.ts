@@ -22,6 +22,11 @@ export function traduzErro(codigo?: string): string {
     'apple/cancelado': 'Login cancelado.',
     'apple/indisponivel': 'Entrar com Apple só está disponível no app para iPhone.',
     'apple/sem-token': 'A Apple não devolveu a credencial. Tente novamente.',
+    'google/cancelado': 'Login cancelado.',
+    'google/indisponivel': 'Entrar com Google só está disponível no app para iPhone e Android.',
+    'google/sem-token': 'O Google não devolveu a credencial. Tente novamente.',
+    'google/nao-configurado': 'Login com Google ainda não configurado neste app.',
+    'auth/account-exists-with-different-credential': 'Já existe uma conta com este e-mail por outro método de login.',
     'auth/network-request-failed': 'Sem conexão com o Firebase. Verifique a internet.'
   };
   if (codigo?.startsWith('timeout/')) {
@@ -39,5 +44,25 @@ export function mensagemErroApple(codigo: string): string {
   }
   const base = traduzErro(codigo);
   const semCodigo = codigo === 'apple/cancelado' || base.includes(`(${codigo})`);
+  return semCodigo ? base : `${base} (${codigo})`;
+}
+
+// Erros do plugin do Google chegam como texto (reject do Swift/Kotlin), não como { code }
+export function erroGoogle(e: any): string {
+  if (e?.code) return e.code;
+  const msg = String(e?.message ?? e ?? '');
+  // Android: "User cancelled"/"Sign-in cancelled"; iOS: ASWebAuthenticationSession error 1 (canceledLogin)
+  if (/cancel/i.test(msg) || /WebAuthenticationSession error 1\b/.test(msg)) return 'google/cancelado';
+  if (/not allowed|command .* not found|plugin/i.test(msg)) return 'google/indisponivel';
+  return 'google/erro';
+}
+
+// Mostra a causa real e o código; "e-mail ou senha" não faz sentido no login social
+export function mensagemErroGoogle(codigo: string): string {
+  if (codigo === 'auth/invalid-credential') {
+    return 'O Firebase recusou a credencial do Google (auth/invalid-credential). Verifique o provedor Google e os client IDs no Firebase.';
+  }
+  const base = traduzErro(codigo);
+  const semCodigo = codigo === 'google/cancelado' || base.includes(`(${codigo})`);
   return semCodigo ? base : `${base} (${codigo})`;
 }

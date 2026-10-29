@@ -84,6 +84,18 @@ jobs:
       - name: Gerar projeto Android
         run: npm run tauri android init -- --ci
 
+      # Regras do R8/ProGuard exigidas pelo plugin do Google Sign-In (builds de release minificados)
+      - name: Regras ProGuard do Google Sign-In
+        run: |
+          cat >> src-tauri/gen/android/app/proguard-rules.pro <<'PRO'
+
+          # Google Sign-In (tauri-plugin-google-auth)
+          -keep class com.google.android.gms.auth.** { *; }
+          -keep class com.google.android.gms.common.** { *; }
+          -keepattributes Signature
+          -keepattributes *Annotation*
+          PRO
+
       - name: Configurar assinatura
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

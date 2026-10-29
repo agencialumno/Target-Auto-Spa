@@ -200,8 +200,7 @@
             <button
                 class="btn-secundario social"
                 onclick={comGoogle}
-                disabled
-                title="Em breve"
+                disabled={carregando}
             >
                 <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
                     <path
