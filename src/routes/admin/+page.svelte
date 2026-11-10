@@ -11,7 +11,6 @@
   } from '$lib/catalogo.svelte';
   import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
-  import { getServico } from '$lib/catalogo.svelte';
   import GerenciarUsuarios from '$lib/components/GerenciarUsuarios.svelte';
   import GerenciarCondominios from '$lib/components/GerenciarCondominios.svelte';
 
@@ -34,8 +33,6 @@
   const porStatus = (st: string) => app.agendamentos.filter((a) => a.status === st).length;
 
   const nomes = nomesItens;
-  const ehInsulfilm = (a: (typeof app.agendamentos)[number]) =>
-    a.itens.some((i) => getServico(i.servicoId)?.categoria === 'insulfilm');
 
   // ---- Preços (catálogo no Firestore) ----
   let msgPrecos = $state('');
@@ -150,8 +147,8 @@
               </small>
               <span class="tags">
                 <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
-                {#if ehInsulfilm(a)}
-                  <span class="selo-status ext">Profissional externo</span>
+                {#if a.externo}
+                  <span class="selo-status ext">Insulfilm</span>
                 {/if}
               </span>
             </span>

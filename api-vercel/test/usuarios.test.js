@@ -106,7 +106,7 @@ test('criar: admin cria conta e perfil; e-mail em minúsculas; condominio só pa
     role: 'gerente',
     condominioId: 'c1'
   });
-  const { uid: u2 } = await criarUsuario(d, bearer('a1'), { ...corpoValido, email: 'b@ex.com', role: 'insulfilm' });
+  const { uid: u2 } = await criarUsuario(d, bearer('a1'), { ...corpoValido, email: 'b@ex.com', role: 'funcionario' });
   assert.equal(d.docs.get(`users/${u2}`).condominioId, null);
 });
 
@@ -187,7 +187,7 @@ test('definirCondominio: admin troca e remove o condomínio de cliente e gerente
 });
 
 test('definirCondominio: valida usuário, papel do alvo e existência do condomínio', async () => {
-  const d = criarDeps({ papeis: { a1: 'admin', a2: 'admin', i1: 'insulfilm', c1: 'cliente' } });
+  const d = criarDeps({ papeis: { a1: 'admin', a2: 'admin', f1: 'funcionario', c1: 'cliente' } });
   const A = bearer('a1');
   assert.equal(await status(definirCondominio(d, A, undefined)), 400);
   assert.equal(await status(definirCondominio(d, A, { uid: '../x', condominioId: 'c1' })), 400);
@@ -196,7 +196,7 @@ test('definirCondominio: valida usuário, papel do alvo e existência do condom�
   assert.equal(await status(definirCondominio(d, A, { uid: 'c1' })), 400, 'condominioId ausente não vale como null');
   assert.equal(await status(definirCondominio(d, A, { uid: 'naoexiste', condominioId: 'c1' })), 404);
   assert.equal(await status(definirCondominio(d, A, { uid: 'a2', condominioId: 'c1' })), 400, 'admin não tem condomínio');
-  assert.equal(await status(definirCondominio(d, A, { uid: 'i1', condominioId: 'c1' })), 400, 'insulfilm não tem condomínio');
+  assert.equal(await status(definirCondominio(d, A, { uid: 'f1', condominioId: 'c1' })), 400, 'funcionário não tem condomínio');
   assert.equal(await status(definirCondominio(d, A, { uid: 'c1', condominioId: 'inexistente' })), 404);
 });
 
@@ -210,4 +210,20 @@ test('criar: funcionário não pertence a condomínio, mesmo se vier um no corpo
   });
   assert.equal(d.docs.get(`users/${uid}`).role, 'funcionario');
   assert.equal(d.docs.get(`users/${uid}`).condominioId, null);
+});
+
+test('criar: especialidade só para funcionário e só "insulfilm"; fica gravada no perfil', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  const A = bearer('a1');
+  const { uid } = await criarUsuario(d, A, { ...corpoValido, email: 'ins@ex.com', role: 'funcionario', especialidade: 'insulfilm' });
+  assert.equal(d.docs.get(`users/${uid}`).especialidade, 'insulfilm');
+  assert.equal(await status(criarUsuario(d, A, { ...corpoValido, email: 'x1@ex.com', role: 'cliente', especialidade: 'insulfilm' })), 400);
+  assert.equal(await status(criarUsuario(d, A, { ...corpoValido, email: 'x2@ex.com', role: 'funcionario', especialidade: 'pintura' })), 400);
+  const { uid: u2 } = await criarUsuario(d, A, { ...corpoValido, email: 'sem@ex.com', role: 'funcionario' });
+  assert.equal('especialidade' in d.docs.get(`users/${u2}`), false);
+});
+
+test('criar: o papel "insulfilm" não existe mais', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  assert.equal(await status(criarUsuario(d, bearer('a1'), { ...corpoValido, email: 'old@ex.com', role: 'insulfilm' })), 400);
 });

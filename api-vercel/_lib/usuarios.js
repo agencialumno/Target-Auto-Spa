@@ -2,7 +2,10 @@
 // recebe `auth` (firebase-admin/auth) e `db` (firebase-admin/firestore) por parâmetro,
 // o que permite testar com objetos falsos.
 
-export const PAPEIS = ['cliente', 'gerente', 'funcionario', 'admin', 'insulfilm'];
+export const PAPEIS = ['cliente', 'gerente', 'funcionario', 'admin'];
+
+// O insulfilm não é um papel: é um funcionário com especialidade (gravada só por aqui, nunca pelo cliente)
+export const ESPECIALIDADES = ['insulfilm'];
 
 export class ErroHttp extends Error {
   constructor(status, mensagem) {
@@ -62,6 +65,7 @@ export async function criarUsuario(deps, authorization, corpo) {
   const senha = corpo.senha;
   const role = corpo.role;
   const condominioId = texto(corpo.condominioId) || null;
+  const especialidade = texto(corpo.especialidade) || null;
 
   if (!nome) throw new ErroHttp(400, 'Informe o nome.');
   if (nome.length > LIMITES.nome) throw new ErroHttp(400, 'Nome grande demais.');
@@ -75,6 +79,9 @@ export async function criarUsuario(deps, authorization, corpo) {
     throw new ErroHttp(400, 'Condomínio inválido.');
   }
   if (!PAPEIS.includes(role)) throw new ErroHttp(400, 'Papel inválido.');
+  if (especialidade !== null && (role !== 'funcionario' || !ESPECIALIDADES.includes(especialidade))) {
+    throw new ErroHttp(400, 'Especialidade inválida (só funcionário pode ter, e só "insulfilm").');
+  }
   if (!senhaForte(senha)) {
     throw new ErroHttp(
       400,
@@ -104,7 +111,8 @@ export async function criarUsuario(deps, authorization, corpo) {
       email,
       role,
       // Só cliente e gerente pertencem a um condomínio
-      condominioId: role === 'cliente' || role === 'gerente' ? condominioId : null
+      condominioId: role === 'cliente' || role === 'gerente' ? condominioId : null,
+      ...(especialidade ? { especialidade } : {})
     });
   } catch {
     // Não deixa conta sem perfil: desfaz a criação no Authentication

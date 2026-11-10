@@ -4,18 +4,14 @@
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
   import { angulos360 } from '$lib/mock';
-  import { getServico } from '$lib/catalogo.svelte';
   import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { chaveData } from '$lib/agenda';
   import { dataCurta } from '$lib/formato';
 
   const hoje = chaveData(new Date());
 
-  const ehInsulfilm = (a: Agendamento) =>
-    a.itens.some((i) => getServico(i.servicoId)?.categoria === 'insulfilm');
-
-  // O insulfilm é feito pelo profissional externo, então não entra na agenda do gerente
-  const doGerente = $derived(app.agendamentos.filter((a) => !ehInsulfilm(a)));
+  // Os externos (insulfilm) entram na lista para o gerente atribuir ao profissional
+  const doGerente = $derived(app.agendamentos);
 
   const ordenar = (lista: Agendamento[]) =>
     [...lista].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
@@ -26,7 +22,6 @@
   const concluidos = $derived(
     ordenar(doGerente.filter((a) => a.status === 'finalizado' || a.status === 'cancelado'))
   );
-  const qtdInsulfilm = $derived(app.agendamentos.filter(ehInsulfilm).length);
 
   const nomes = (a: Agendamento) => nomesItens(a.itens);
 </script>
@@ -38,7 +33,8 @@
       <strong>{nomes(a)}</strong>
       <small>
         {a.data === hoje ? 'Hoje' : dataCurta(a.data)} · {a.veiculo.placa || '-'} · {brlCentavos(a.total)}
-        {#if a.funcionarioNome}· {a.funcionarioNome}{/if}
+        {#if a.externo}· Insulfilm{/if}
+        {#if a.funcionarioNome}· {a.funcionarioNome}{:else if a.status === 'agendado'}· sem responsável{/if}
       </small>
       <span class="rodape">
         <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
@@ -95,12 +91,6 @@
       </div>
     {/if}
 
-    {#if qtdInsulfilm > 0}
-      <p class="aviso-insulfilm">
-        <Icone nome="layers" tamanho={16} />
-        {qtdInsulfilm} agendamento(s) de insulfilm estão na agenda do profissional externo.
-      </p>
-    {/if}
   </section>
 </div>
 

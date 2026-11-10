@@ -11,14 +11,14 @@
     email: string;
     role: Papel;
     condominioId: string | null;
+    especialidade?: string | null;
   };
 
   const papeis: { id: Papel; nome: string }[] = [
     { id: 'cliente', nome: 'Cliente' },
     { id: 'gerente', nome: 'Gerente' },
     { id: 'funcionario', nome: 'Funcionário' },
-    { id: 'admin', nome: 'Administrador' },
-    { id: 'insulfilm', nome: 'Insulfilm' }
+    { id: 'admin', nome: 'Administrador' }
   ];
   const nomePapel = (p: string) => papeis.find((x) => x.id === p)?.nome ?? p;
 
@@ -31,6 +31,7 @@
   let email = $state('');
   let senha = $state('');
   let role = $state<Papel>('cliente');
+  let especialidade = $state(''); // só funcionário: '' ou 'insulfilm'
   let condominioId = $state('');
   let salvando = $state(false);
   let erroForm = $state('');
@@ -102,7 +103,8 @@
         email,
         senha,
         role,
-        condominioId: precisaCondominio ? condominioId : null
+        condominioId: precisaCondominio ? condominioId : null,
+        especialidade: role === 'funcionario' && especialidade ? especialidade : null
       });
       formAberto = false;
       await carregar();
@@ -179,7 +181,7 @@
           <strong>{u.nome || '(sem nome)'}</strong>
           <small>{u.email}</small>
           <small>
-            <span class="papel">{nomePapel(u.role)}</span>
+            <span class="papel">{nomePapel(u.role)}{#if u.especialidade === 'insulfilm'} · Insulfilm{/if}</span>
             {#if u.condominioId}· {nomeCondominio(u.condominioId)}{/if}
           </small>
         </div>
@@ -231,6 +233,15 @@
           {#each papeis as p}<option value={p.id}>{p.nome}</option>{/each}
         </select>
       </label>
+      {#if role === 'funcionario'}
+        <label class="campo">
+          <span>Especialidade</span>
+          <select bind:value={especialidade} aria-label="Especialidade">
+            <option value="">Nenhuma (lavagem e estética)</option>
+            <option value="insulfilm">Insulfilm (profissional externo)</option>
+          </select>
+        </label>
+      {/if}
       {#if precisaCondominio}
         <label class="campo">
           <span>Condomínio (id)</span>

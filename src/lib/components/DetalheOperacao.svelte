@@ -64,10 +64,10 @@
       </div>
 
       {#if atribuir}
-        <h2>Funcionário responsável</h2>
+        <h2>{ag.externo ? 'Profissional externo (insulfilm)' : 'Funcionário responsável'}</h2>
         <select class="funcionario" value={ag.funcionarioId ?? ''} onchange={escolherFuncionario} disabled={!emAberto}>
-          <option value="">Sem funcionário atribuído</option>
-          {#each app.funcionarios as f (f.uid)}
+          <option value="">{ag.externo ? 'Sem profissional atribuído (insulfilm)' : 'Sem funcionário atribuído'}</option>
+          {#each app.funcionariosPara(ag) as f (f.uid)}
             <option value={f.uid}>{f.nome}</option>
           {/each}
         </select>

@@ -11,8 +11,6 @@ export function rotaInicial(p: PerfilRota): string | null {
       return '/funcionario';
     case 'admin':
       return '/admin';
-    case 'insulfilm':
-      return '/insulfilm';
     default:
       return null;
   }

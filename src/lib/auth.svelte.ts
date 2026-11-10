@@ -53,7 +53,7 @@ function comTimeout<T>(promessa: Promise<T>, etapa: string): Promise<T> {
   });
 }
 
-export type Papel = "cliente" | "gerente" | "funcionario" | "admin" | "insulfilm";
+export type Papel = "cliente" | "gerente" | "funcionario" | "admin";
 
 export type Perfil = {
   nome: string;

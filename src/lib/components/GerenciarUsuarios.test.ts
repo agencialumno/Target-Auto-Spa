@@ -27,7 +27,7 @@ beforeEach(() => {
     { id: 'adm', data: { nome: 'Admin', email: 'adm@ex.com', role: 'admin', condominioId: null } },
     { id: 'c1', data: { nome: 'Ana', email: 'ana@ex.com', role: 'cliente', condominioId: 'torre-10' } },
     { id: 'g1', data: { nome: 'Gui', email: 'gui@ex.com', role: 'gerente', condominioId: null } },
-    { id: 'i1', data: { nome: 'Ivo', email: 'ivo@ex.com', role: 'insulfilm', condominioId: null } }
+    { id: 'i1', data: { nome: 'Ivo', email: 'ivo@ex.com', role: 'funcionario', especialidade: 'insulfilm', condominioId: null } }
   ];
   m.condominios = [
     { id: 'torre-10', data: { nome: 'Torre 10' } },
@@ -42,7 +42,7 @@ async function abrir() {
 }
 
 describe('vínculo com condomínio', () => {
-  it('botão só para cliente e gerente (não para admin nem insulfilm)', async () => {
+  it('botão só para cliente e gerente (não para admin nem funcionário)', async () => {
     await abrir();
     expect(screen.getByRole('button', { name: 'Condomínio de Ana' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Condomínio de Gui' })).toBeInTheDocument();
