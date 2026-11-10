@@ -143,6 +143,14 @@ jobs:
         run: |
           grep -rn -A6 "CFBundleURLTypes" src-tauri/gen/apple --include=Info.plist || echo "(sem CFBundleURLTypes: Google Sign-In sem client ID do iOS configurado)"
 
+      # Sem estas chaves o iOS derruba o app ao abrir a câmera/galeria. Falha o build se faltarem.
+      - name: Conferir textos de uso de câmera e fotos no Info.plist gerado
+        run: |
+          for K in NSCameraUsageDescription NSPhotoLibraryUsageDescription; do
+            grep -rq "$K" src-tauri/gen/apple --include=Info.plist || { echo "::error::$K ausente no Info.plist gerado (confira src-tauri/Info.ios.plist)"; exit 1; }
+          done
+          echo "Textos de câmera e fotos presentes."
+
       - name: Conferir versão no projeto gerado
         run: |
           grep -rn -A1 "CFBundleVersion\|CFBundleShortVersionString" src-tauri/gen/apple --include=Info.plist --include=project.yml || true

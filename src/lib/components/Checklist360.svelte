@@ -20,9 +20,26 @@
 
   const rotuloFase = (f: Fase) => (f === 'antes' ? 'Como chegou' : 'Como saiu');
 
+  let recebeu = false;
+
+  // No WKWebView do iPhone, se o acesso à câmera/fotos estiver negado (ou a pessoa fechar o
+  // seletor) o input não dispara nenhum evento. Ao voltar o foco para o app, se nenhuma foto
+  // chegou, avisamos e dizemos onde liberar a permissão, em vez de falhar em silêncio.
   function abrir(angulo: string) {
     alvo = angulo;
     erro = '';
+    recebeu = false;
+    window.addEventListener(
+      'focus',
+      () =>
+        setTimeout(() => {
+          if (!recebeu && processando === null) {
+            erro =
+              'Nenhuma foto foi recebida. Se você negou o acesso, abra Ajustes > Target Auto Spa e permita Câmera e Fotos.';
+          }
+        }, 1200),
+      { once: true }
+    );
     input?.click();
   }
 
@@ -30,6 +47,7 @@
     const el = e.currentTarget as HTMLInputElement;
     const arquivo = el.files?.[0];
     el.value = '';
+    if (arquivo) recebeu = true;
     const angulo = alvo;
     const faseAtual = fase;
     if (!arquivo || !angulo) return;
