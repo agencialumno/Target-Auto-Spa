@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { tick } from 'svelte';
+  import ChecklistSenha from '$lib/components/ChecklistSenha.svelte';
+  import { emailValido, mensagemSenha, rolarAte, type Problema } from '$lib/validacao';
   import { collection, getDocs } from 'firebase/firestore';
   import { db } from '$lib/firebase';
   import { chamarApi } from '$lib/api';
@@ -51,15 +54,27 @@
 
   const precisaCondominio = $derived(role === 'cliente' || role === 'gerente');
 
-  const criterios = $derived([
-    senha.length >= 8,
-    /[A-Z]/.test(senha),
-    /[a-z]/.test(senha),
-    /[0-9]/.test(senha),
-    /[^A-Za-z0-9]/.test(senha)
-  ]);
-  const senhaForte = $derived(criterios.every(Boolean));
-  const podeCriar = $derived(!!nome.trim() && !!email.trim() && senhaForte && !salvando);
+  let erroEl = $state<HTMLParagraphElement>();
+  let tentou = $state(false); // depois da 1ª tentativa, o checklist da senha mostra o que falta em vermelho
+  let sucesso = $state('');
+  type Campo = 'nome' | 'email' | 'senha' | 'condominio';
+  let campoInvalido = $state<Campo | ''>('');
+  const refs: Partial<Record<Campo, HTMLElement>> = {};
+
+  // Cada validação que falha diz exatamente o que falta e qual campo marcar; nunca um retorno mudo
+  function validar(): Problema<Campo> | null {
+    if (!nome.trim()) return { campo: 'nome', mensagem: 'Informe o nome.' };
+    if (nome.trim().length > 100) return { campo: 'nome', mensagem: 'O nome pode ter no máximo 100 caracteres.' };
+    if (!email.trim()) return { campo: 'email', mensagem: 'Informe o e-mail.' };
+    if (!emailValido(email)) return { campo: 'email', mensagem: 'O e-mail parece inválido. Confira e tente de novo.' };
+    if (!senha) return { campo: 'senha', mensagem: 'Informe uma senha temporária.' };
+    const fraca = mensagemSenha(senha);
+    if (fraca) return { campo: 'senha', mensagem: fraca + '.' };
+    if (precisaCondominio && condominioId.trim() && !/^[A-Za-z0-9_-]{1,100}$/.test(condominioId.trim())) {
+      return { campo: 'condominio', mensagem: 'O id do condomínio só pode ter letras, números, hífen e sublinhado.' };
+    }
+    return null;
+  }
 
   async function carregar() {
     carregando = true;
@@ -87,31 +102,49 @@
     senha = '';
     role = 'cliente';
     condominioId = '';
+    especialidade = '';
     erroForm = '';
+    campoInvalido = '';
+    tentou = false;
+    sucesso = '';
     formAberto = true;
   }
 
   const mensagem = (e: any, padrao: string) => e?.message || padrao;
 
   async function criar() {
-    if (!podeCriar) return;
+    if (salvando) return;
+    // O estado de carregando vem ANTES de qualquer outro passo
     salvando = true;
     erroForm = '';
+    campoInvalido = '';
+    sucesso = '';
+    tentou = true;
     try {
+      const problema = validar();
+      if (problema) {
+        erroForm = problema.mensagem;
+        campoInvalido = problema.campo;
+        rolarAte(refs[problema.campo]);
+        return;
+      }
       await chamarApi('criar', {
-        nome,
-        email,
+        nome: nome.trim(),
+        email: email.trim(),
         senha,
         role,
-        condominioId: precisaCondominio ? condominioId : null,
+        condominioId: precisaCondominio ? condominioId.trim() || null : null,
         especialidade: role === 'funcionario' && especialidade ? especialidade : null
       });
       formAberto = false;
+      sucesso = `Usuário ${nome.trim()} criado com sucesso.`;
       await carregar();
     } catch (e) {
       erroForm = mensagem(e, 'Não foi possível criar o usuário.');
     } finally {
       salvando = false;
+      // O erro pode ficar fora da tela num formulário longo no iPhone: traz para a vista
+      if (erroForm) tick().then(() => erroEl?.scrollIntoView?.({ block: 'nearest' }));
     }
   }
 
@@ -169,6 +202,10 @@
   <button class="btn-primario novo" onclick={abrirForm}>Novo usuário</button>
 </div>
 
+{#if sucesso}
+  <p class="ok-form" role="status">{sucesso}</p>
+{/if}
+
 {#if carregando}
   <p class="aviso">Carregando...</p>
 {:else if erroLista}
@@ -208,25 +245,23 @@
 
 {#if formAberto}
   <div class="camada" role="dialog" aria-modal="true" aria-label="Novo usuário">
-    <form class="caixa" onsubmit={(e) => (e.preventDefault(), criar())}>
+    <!-- novalidate: a validação nativa (required/email) não mostra nada no WKWebView e travaria o envio em silêncio -->
+    <form class="caixa" novalidate onsubmit={(e) => (e.preventDefault(), criar())}>
       <h2>Novo usuário</h2>
 
       <label class="campo">
         <span>Nome</span>
-        <input type="text" bind:value={nome} required />
+        <input type="text" bind:value={nome} bind:this={refs.nome} aria-invalid={campoInvalido === 'nome'} />
       </label>
       <label class="campo">
         <span>E-mail</span>
-        <input type="email" bind:value={email} required />
+        <input type="email" bind:value={email} bind:this={refs.email} aria-invalid={campoInvalido === 'email'} autocapitalize="none" />
       </label>
       <label class="campo">
         <span>Senha temporária</span>
-        <input type="text" bind:value={senha} required autocomplete="off" />
-        <small class:ok={senhaForte}>
-          8+ caracteres, maiúscula, minúscula, número e caractere especial
-          {#if senhaForte}<Icone nome="check" tamanho={12} />{/if}
-        </small>
+        <input type="text" bind:value={senha} bind:this={refs.senha} aria-invalid={campoInvalido === 'senha'} autocomplete="off" autocapitalize="none" />
       </label>
+      <ChecklistSenha {senha} {tentou} />
       <label class="campo">
         <span>Papel</span>
         <select bind:value={role}>
@@ -245,13 +280,14 @@
       {#if precisaCondominio}
         <label class="campo">
           <span>Condomínio (id)</span>
-          <input type="text" bind:value={condominioId} placeholder="Ex: condominio-teste" />
+          <input type="text" bind:value={condominioId} bind:this={refs.condominio} aria-invalid={campoInvalido === 'condominio'} placeholder="Ex: condominio-teste" autocapitalize="none" />
         </label>
       {/if}
 
-      {#if erroForm}<p class="erro">{erroForm}</p>{/if}
+      {#if erroForm}<p class="erro-form" role="alert" bind:this={erroEl}>{erroForm}</p>{/if}
 
-      <button class="btn-primario" type="submit" disabled={!podeCriar}>
+      <!-- Nunca desabilitado por validação (um botão desabilitado não responde ao toque nem explica nada) -->
+      <button class="btn-primario" type="submit" disabled={salvando} aria-busy={salvando}>
         {salvando ? 'Criando...' : 'Criar usuário'}
       </button>
       <button class="btn-secundario" type="button" onclick={() => (formAberto = false)}>

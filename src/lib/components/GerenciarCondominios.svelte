@@ -12,6 +12,7 @@
     type Condominio
   } from '$lib/condominios-admin';
   import { idDoCondominio, validarNome } from '$lib/condominio';
+  import { rolarAte } from '$lib/validacao';
 
   let condominios = $state<Condominio[]>([]);
   let carregando = $state(true);
@@ -28,6 +29,7 @@
   let capIns = $state(1);
   let capInsSalvando = $state(false);
   let capInsMsg = $state('');
+  let capInsErro = $state(false);
   let erroForm = $state('');
 
   let removendo = $state<Condominio | null>(null);
@@ -36,7 +38,14 @@
 
   const limpoNome = (n: string) => n.trim().replace(/\s+/g, ' ');
   const idPrevisto = $derived(idDoCondominio(nome));
-  const podeSalvar = $derived(validarNome(nome) === null && !salvando && (!editando || capacidadeValida(capacidade)));
+  type Campo = 'nome' | 'capacidade';
+  let campoInvalido = $state<Campo | ''>('');
+  const refs: Partial<Record<Campo, HTMLElement>> = {};
+  const MENSAGENS_NOME = {
+    vazio: 'Informe o nome do condomínio.',
+    longo: 'O nome pode ter no máximo 100 caracteres.',
+    invalido: 'O nome precisa ter letras ou números.'
+  } as const;
 
   async function carregar() {
     carregando = true;
@@ -58,11 +67,18 @@
   async function salvarCapIns() {
     capInsSalvando = true;
     capInsMsg = '';
+    capInsErro = false;
     try {
+      if (!capacidadeValida(Number(capIns))) {
+        capInsMsg = `A capacidade deve ser um número inteiro de 1 a ${CAPACIDADE_MAX}.`;
+        capInsErro = true;
+        return;
+      }
       await salvarCapacidadeInsulfilm(Number(capIns));
       capInsMsg = 'Capacidade do insulfilm salva.';
     } catch (e: any) {
       capInsMsg = e?.message || 'Não foi possível salvar.';
+      capInsErro = true;
     } finally {
       capInsSalvando = false;
     }
@@ -72,6 +88,7 @@
     editando = null;
     nome = '';
     erroForm = '';
+    campoInvalido = '';
     formAberto = true;
   }
 
@@ -80,14 +97,30 @@
     nome = c.nome;
     capacidade = c.capacidade;
     erroForm = '';
+    campoInvalido = '';
     formAberto = true;
   }
 
   async function salvar() {
-    if (!podeSalvar) return;
+    if (salvando) return;
+    // O estado de carregando vem ANTES de qualquer outro passo
     salvando = true;
     erroForm = '';
+    campoInvalido = '';
     try {
+      const erroNome = validarNome(nome);
+      if (erroNome) {
+        erroForm = MENSAGENS_NOME[erroNome];
+        campoInvalido = 'nome';
+        rolarAte(refs.nome);
+        return;
+      }
+      if (editando && !capacidadeValida(Number(capacidade))) {
+        erroForm = `A capacidade deve ser um número inteiro de 1 a ${CAPACIDADE_MAX}.`;
+        campoInvalido = 'capacidade';
+        rolarAte(refs.capacidade);
+        return;
+      }
       if (editando) {
         if (limpoNome(nome) !== editando.nome) await renomearCondominio(editando.id, nome);
         if (Number(capacidade) !== editando.capacidade) await definirCapacidade(editando.id, Number(capacidade));
@@ -125,12 +158,12 @@
     <span>Vagas por horário</span>
   </label>
   <div class="linha-ins">
-    <input id="cap-insulfilm" type="number" min="1" max={CAPACIDADE_MAX} step="1" inputmode="numeric" bind:value={capIns} aria-label="Capacidade do insulfilm" />
-    <button class="btn-primario" onclick={salvarCapIns} disabled={capInsSalvando || !capacidadeValida(Number(capIns))}>
+    <input id="cap-insulfilm" aria-invalid={capInsErro} type="number" min="1" max={CAPACIDADE_MAX} step="1" inputmode="numeric" bind:value={capIns} aria-label="Capacidade do insulfilm" />
+    <button class="btn-primario" onclick={salvarCapIns} disabled={capInsSalvando}>
       {capInsSalvando ? 'Salvando...' : 'Salvar'}
     </button>
   </div>
-  {#if capInsMsg}<small role="status">{capInsMsg}</small>{/if}
+  {#if capInsMsg}<p class={capInsErro ? 'erro-form' : 'ok-form'} role={capInsErro ? 'alert' : 'status'}>{capInsMsg}</p>{/if}
 </section>
 
 <div class="topo">
@@ -167,11 +200,12 @@
 
 {#if formAberto}
   <div class="camada" role="dialog" aria-modal="true" aria-label={editando ? 'Editar condomínio' : 'Novo condomínio'}>
-    <form class="caixa" onsubmit={(e) => (e.preventDefault(), salvar())}>
+    <!-- novalidate: a validação nativa não mostra nada no WKWebView -->
+    <form class="caixa" novalidate onsubmit={(e) => (e.preventDefault(), salvar())}>
       <h2>{editando ? 'Editar condomínio' : 'Novo condomínio'}</h2>
       <label class="campo">
         <span>Nome do condomínio</span>
-        <input type="text" bind:value={nome} maxlength="100" required />
+        <input type="text" bind:value={nome} bind:this={refs.nome} aria-invalid={campoInvalido === 'nome'} maxlength="100" />
         {#if editando}
           <small>O identificador ({editando.id}) não muda ao renomear; moradores e agendamentos continuam vinculados.</small>
         {:else if idPrevisto}
@@ -181,12 +215,12 @@
       {#if editando}
         <label class="campo">
           <span>Vagas por horário (capacidade)</span>
-          <input type="number" min="1" max={CAPACIDADE_MAX} step="1" bind:value={capacidade} />
+          <input type="number" min="1" max={CAPACIDADE_MAX} step="1" inputmode="numeric" bind:value={capacidade} bind:this={refs.capacidade} aria-invalid={campoInvalido === 'capacidade'} />
           <small>Quantos agendamentos cabem no mesmo horário neste condomínio (1 a {CAPACIDADE_MAX}).</small>
         </label>
       {/if}
-      {#if erroForm}<p class="erro">{erroForm}</p>{/if}
-      <button class="btn-primario" type="submit" disabled={!podeSalvar}>
+      {#if erroForm}<p class="erro-form" role="alert">{erroForm}</p>{/if}
+      <button class="btn-primario" type="submit" disabled={salvando} aria-busy={salvando}>
         {salvando ? 'Salvando...' : editando ? 'Salvar' : 'Criar condomínio'}
       </button>
       <button class="btn-secundario" type="button" onclick={() => (formAberto = false)}>Cancelar</button>

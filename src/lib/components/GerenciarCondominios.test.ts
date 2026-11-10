@@ -70,28 +70,33 @@ describe('lista', () => {
 });
 
 describe('criar', () => {
-  it('botão desabilitado sem nome válido e mostra o identificador previsto', async () => {
+  it('nome vazio: o toque responde com a mensagem (botão nunca morto) e mostra o identificador previsto', async () => {
     await abrir();
     await fireEvent.click(screen.getByText('Novo condomínio'));
     const caixa = screen.getByRole('dialog', { name: 'Novo condomínio' });
     const botao = within(caixa).getByRole('button', { name: 'Criar condomínio' });
-    expect(botao).toBeDisabled();
+    expect(botao).toBeEnabled();
 
     const campo = within(caixa).getByLabelText(/Nome do condomínio/);
     await fireEvent.input(campo, { target: { value: '   ' } });
-    expect(botao).toBeDisabled();
+    await fireEvent.click(botao);
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent('Informe o nome do condomínio.');
+    expect(campo).toHaveAttribute('aria-invalid', 'true');
+    expect(m.criarCondominio).not.toHaveBeenCalled();
 
     await fireEvent.input(campo, { target: { value: 'Residencial São João' } });
     expect(botao).toBeEnabled();
     expect(within(caixa).getByText('Identificador: residencial-sao-joao')).toBeInTheDocument();
   });
 
-  it('só símbolos não habilita o botão', async () => {
+  it('só símbolos: mostra a mensagem e não cria', async () => {
     await abrir();
     await fireEvent.click(screen.getByText('Novo condomínio'));
     const caixa = screen.getByRole('dialog');
     await fireEvent.input(within(caixa).getByLabelText(/Nome do condomínio/), { target: { value: '***' } });
-    expect(within(caixa).getByRole('button', { name: 'Criar condomínio' })).toBeDisabled();
+    await fireEvent.click(within(caixa).getByRole('button', { name: 'Criar condomínio' }));
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent('O nome precisa ter letras ou números.');
+    expect(m.criarCondominio).not.toHaveBeenCalled();
   });
 
   it('cria, fecha o formulário e recarrega a lista', async () => {
@@ -140,12 +145,18 @@ describe('criar', () => {
     expect(m.renomearCondominio).not.toHaveBeenCalled();
   });
 
-  it('capacidade inválida desabilita o Salvar', async () => {
+  it.each(['0', '21', '-1'])('capacidade inválida (%s): mensagem, campo em vermelho e nada é gravado', async (valor) => {
     await abrir();
     await fireEvent.click(screen.getByRole('button', { name: 'Editar Torre 10' }));
     const caixa = screen.getByRole('dialog', { name: 'Editar condomínio' });
-    await fireEvent.input(within(caixa).getByLabelText(/Vagas por horário/), { target: { value: '0' } });
-    expect(within(caixa).getByRole('button', { name: 'Salvar' })).toBeDisabled();
+    const campo = within(caixa).getByLabelText(/Vagas por horário/);
+    await fireEvent.input(campo, { target: { value: valor } });
+    const botao = within(caixa).getByRole('button', { name: 'Salvar' });
+    expect(botao).toBeEnabled();
+    await fireEvent.click(botao);
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent(/inteiro de 1 a 20/);
+    expect(campo).toHaveAttribute('aria-invalid', 'true');
+    expect(m.definirCapacidade).not.toHaveBeenCalled();
   });
 });
 
@@ -158,6 +169,25 @@ describe('capacidade do insulfilm', () => {
     await fireEvent.input(campo, { target: { value: '4' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
     await waitFor(() => expect(m.salvarCapacidadeInsulfilm).toHaveBeenCalledWith(4));
+    expect(await screen.findByRole('status')).toHaveTextContent('Capacidade do insulfilm salva.');
+  });
+
+  it('valor inválido: mensagem e nada é gravado', async () => {
+    await abrir();
+    const campo = (await screen.findByLabelText('Capacidade do insulfilm')) as HTMLInputElement;
+    await fireEvent.input(campo, { target: { value: '0' } });
+    const botao = screen.getByRole('button', { name: 'Salvar' });
+    expect(botao).toBeEnabled();
+    await fireEvent.click(botao);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/inteiro de 1 a 20/);
+    expect(m.salvarCapacidadeInsulfilm).not.toHaveBeenCalled();
+  });
+
+  it('erro da API aparece como alerta', async () => {
+    m.salvarCapacidadeInsulfilm.mockRejectedValue(new Error('Sem permissão.'));
+    await abrir();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Salvar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sem permissão.');
   });
 });
 

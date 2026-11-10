@@ -28,10 +28,19 @@
   let cancelando = $state(false);
 
   async function enviarAvaliacao() {
-    if (!ag || nota === 0 || nps === null || enviando) return;
+    if (!ag || enviando) return;
+    // O estado de carregando vem ANTES de qualquer outro passo
     enviando = true;
     erro = '';
     try {
+      if (nota === 0) {
+        erro = 'Escolha de 1 a 5 estrelas para avaliar o serviço.';
+        return;
+      }
+      if (nps === null) {
+        erro = 'Escolha de 0 a 10 o quanto você indicaria a Target Auto Spa.';
+        return;
+      }
       await app.avaliar(ag.id, { nota, nps, comentario: comentario.trim() });
     } catch (e) {
       erro = `Não foi possível enviar a avaliação (${(e as { code?: string })?.code ?? 'erro'}).`;
@@ -154,12 +163,9 @@
             bind:value={comentario}
           ></textarea>
 
-          <button
-            class="btn-primario"
-            disabled={nota === 0 || nps === null}
-            onclick={enviarAvaliacao}
-          >
-            Enviar avaliação
+          {#if erro}<p class="erro-form" role="alert">{erro}</p>{/if}
+          <button class="btn-primario" disabled={enviando} aria-busy={enviando} onclick={enviarAvaliacao}>
+            {enviando ? 'Enviando...' : 'Enviar avaliação'}
           </button>
         {/if}
       {/if}

@@ -5,6 +5,8 @@
     import { rotaInicial } from "$lib/rotas";
     import PainelDepuracao from "$lib/components/PainelDepuracao.svelte";
     import Icone from "$lib/components/Icone.svelte";
+    import ChecklistSenha from "$lib/components/ChecklistSenha.svelte";
+    import { emailValido, mensagemSenha, rolarAte, type Problema } from "$lib/validacao";
 
     type Modo = "entrar" | "cadastrar";
     let modo: Modo = $state("entrar");
@@ -13,18 +15,24 @@
     let email = $state("");
     let senha = $state("");
 
-    // Critérios da senha forte (só exigidos no cadastro)
-    const criterios = $derived([
-        { texto: "Mínimo 8 caracteres", ok: senha.length >= 8 },
-        { texto: "Pelo menos 1 letra maiúscula", ok: /[A-Z]/.test(senha) },
-        { texto: "Pelo menos 1 letra minúscula", ok: /[a-z]/.test(senha) },
-        { texto: "Pelo menos 1 número", ok: /[0-9]/.test(senha) },
-        {
-            texto: "Pelo menos 1 caractere especial (!@#$%^&*)",
-            ok: /[^A-Za-z0-9]/.test(senha),
-        },
-    ]);
-    const senhaForte = $derived(criterios.every((c) => c.ok));
+    let tentou = $state(false); // depois da 1ª tentativa, o checklist mostra em vermelho o que falta
+    let erroLocal = $state("");
+    type Campo = "nome" | "email" | "senha";
+    let campoInvalido = $state<Campo | "">("");
+    const refs: Partial<Record<Campo, HTMLElement>> = {};
+
+    // Cada validação que falha diz exatamente o que falta e qual campo marcar
+    function validar(): Problema<Campo> | null {
+        if (modo === "cadastrar" && !nome.trim()) return { campo: "nome", mensagem: "Informe o seu nome." };
+        if (!email.trim()) return { campo: "email", mensagem: "Informe o e-mail." };
+        if (!emailValido(email)) return { campo: "email", mensagem: "O e-mail parece inválido. Confira e tente de novo." };
+        if (!senha) return { campo: "senha", mensagem: "Informe a senha." };
+        if (modo === "cadastrar") {
+            const fraca = mensagemSenha(senha);
+            if (fraca) return { campo: "senha", mensagem: fraca + "." };
+        }
+        return null;
+    }
     let carregando = $state(false);
     let mostrarSucesso = $state(false);
 
@@ -38,9 +46,20 @@
     });
 
     async function enviar() {
-        if (modo === "cadastrar" && !senhaForte) return;
+        if (carregando) return;
+        // O estado de carregando vem ANTES de qualquer outro passo
         carregando = true;
+        erroLocal = "";
+        campoInvalido = "";
+        tentou = true;
         try {
+            const problema = validar();
+            if (problema) {
+                erroLocal = problema.mensagem;
+                campoInvalido = problema.campo;
+                rolarAte(refs[problema.campo]);
+                return;
+            }
             if (modo === "cadastrar") {
                 await authStore.cadastrar(nome, email, senha);
                 mostrarSucesso = true;
@@ -120,14 +139,15 @@
             </button>
         </div>
 
-        <form class="form" onsubmit={(e) => (e.preventDefault(), enviar())}>
+        <form novalidate class="form" onsubmit={(e) => (e.preventDefault(), enviar())}>
             {#if modo === "cadastrar"}
                 <label class="campo">
                     <span>Nome</span>
                     <input
                         type="text"
                         bind:value={nome}
-                        required
+                        bind:this={refs.nome}
+                        aria-invalid={campoInvalido === "nome"}
                         placeholder="Seu nome"
                     />
                 </label>
@@ -138,7 +158,9 @@
                 <input
                     type="email"
                     bind:value={email}
-                    required
+                    bind:this={refs.email}
+                    aria-invalid={campoInvalido === "email"}
+                    autocapitalize="none"
                     placeholder="voce@exemplo.com"
                 />
             </label>
@@ -148,36 +170,28 @@
                 <input
                     type="password"
                     bind:value={senha}
-                    required
-                    minlength={modo === "cadastrar" ? 8 : 6}
+                    bind:this={refs.senha}
+                    aria-invalid={campoInvalido === "senha"}
                     placeholder="••••••••"
                 />
             </label>
 
             {#if modo === "cadastrar"}
-                <ul class="criterios" aria-label="Requisitos da senha">
-                    {#each criterios as c}
-                        <li class:ok={c.ok}>
-                            <span class="marca" aria-hidden="true">
-                                {#if c.ok}<Icone nome="check" tamanho={12} />{/if}
-                            </span>
-                            <span>{c.texto}</span>
-                            <span class="so-leitor"
-                                >{c.ok ? "atendido" : "pendente"}</span
-                            >
-                        </li>
-                    {/each}
-                </ul>
+                <ChecklistSenha {senha} {tentou} />
             {/if}
 
-            {#if authStore.erro}
-                <p class="erro">{authStore.erro}</p>
+            {#if erroLocal}
+                <p class="erro-form" role="alert">{erroLocal}</p>
+            {:else if authStore.erro}
+                <p class="erro-form" role="alert">{authStore.erro}</p>
             {/if}
 
+            <!-- Nunca desabilitado por validação: o toque sempre responde e a mensagem diz o que falta -->
             <button
                 class="btn-primario"
                 type="submit"
-                disabled={carregando || (modo === "cadastrar" && !senhaForte)}
+                disabled={carregando}
+                aria-busy={carregando}
             >
                 {carregando
                     ? "Aguarde..."

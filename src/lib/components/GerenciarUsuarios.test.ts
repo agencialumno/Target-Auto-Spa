@@ -95,3 +95,160 @@ describe('vínculo com condomínio', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
+
+describe('criar usuário (o toque no botão sempre responde)', () => {
+  const SENHA_OK = 'Abcdef1!x';
+
+  async function abrirForm() {
+    await abrir();
+    await fireEvent.click(screen.getByRole('button', { name: 'Novo usuário' }));
+    return screen.getByRole('dialog', { name: 'Novo usuário' });
+  }
+
+  type Campos = { nome?: string; email?: string; senha?: string; papel?: string; especialidade?: string; condominio?: string };
+
+  async function preencher(caixa: HTMLElement, campos: Campos) {
+    const c = { nome: 'Novo Nome', email: 'novo@ex.com', senha: SENHA_OK, ...campos };
+    await fireEvent.input(within(caixa).getByLabelText('Nome'), { target: { value: c.nome } });
+    await fireEvent.input(within(caixa).getByLabelText('E-mail'), { target: { value: c.email } });
+    await fireEvent.input(within(caixa).getByLabelText(/Senha temporária/), { target: { value: c.senha } });
+    if (c.papel) await fireEvent.change(within(caixa).getByLabelText('Papel'), { target: { value: c.papel } });
+    if (c.especialidade) await fireEvent.change(within(caixa).getByLabelText('Especialidade'), { target: { value: c.especialidade } });
+    if (c.condominio) await fireEvent.input(within(caixa).getByLabelText(/Condomínio \(id\)/), { target: { value: c.condominio } });
+  }
+
+  const tocar = (caixa: HTMLElement) => fireEvent.click(within(caixa).getByRole('button', { name: /Criar usuário|Criando/ }));
+
+  // Cada papel com cada regra inválida: a mensagem aparece, o campo fica vermelho e a API NÃO é chamada
+  const PAPEIS: [string, Campos][] = [
+    ['cliente', { papel: 'cliente' }],
+    ['gerente', { papel: 'gerente' }],
+    ['funcionário', { papel: 'funcionario' }],
+    ['funcionário insulfilm', { papel: 'funcionario', especialidade: 'insulfilm' }],
+    ['admin', { papel: 'admin' }]
+  ];
+
+  const REGRAS: [string, Campos, RegExp, string][] = [
+    ['sem nome', { nome: '  ' }, /Informe o nome\./, 'Nome'],
+    ['nome grande demais', { nome: 'x'.repeat(101) }, /no máximo 100 caracteres/, 'Nome'],
+    ['sem e-mail', { email: '' }, /Informe o e-mail\./, 'E-mail'],
+    ['e-mail inválido', { email: 'sem-arroba' }, /e-mail parece inválido/i, 'E-mail'],
+    ['sem senha', { senha: '' }, /Informe uma senha temporária\./, 'Senha temporária'],
+    ['senha curta', { senha: 'Ab1!' }, /Senha precisa de pelo menos 8 caracteres/, 'Senha temporária'],
+    ['senha sem maiúscula', { senha: 'abcdef1!x' }, /Senha precisa de uma letra maiúscula/, 'Senha temporária'],
+    ['senha sem minúscula', { senha: 'ABCDEF1!X' }, /Senha precisa de uma letra minúscula/, 'Senha temporária'],
+    ['senha sem número', { senha: 'Abcdefg!x' }, /Senha precisa de um número/, 'Senha temporária'],
+    ['senha sem caractere especial', { senha: 'Abcdefg1x' }, /Senha precisa de um caractere especial/, 'Senha temporária']
+  ];
+
+  for (const [papelNome, papel] of PAPEIS) {
+    describe(papelNome, () => {
+      it.each(REGRAS)('%s: mensagem visível, campo em vermelho, API não chamada', async (_r, invalido, mensagem, rotulo) => {
+        const caixa = await abrirForm();
+        await preencher(caixa, { ...papel, ...invalido });
+        const botao = within(caixa).getByRole('button', { name: 'Criar usuário' });
+        expect(botao).toBeEnabled(); // o botão não fica "morto"
+        await fireEvent.click(botao);
+        expect(await within(caixa).findByRole('alert')).toHaveTextContent(mensagem);
+        expect(within(caixa).getByLabelText(rotulo === 'Senha temporária' ? /Senha temporária/ : rotulo)).toHaveAttribute('aria-invalid', 'true');
+        expect(m.chamarApi).not.toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Novo usuário' })).toBeInTheDocument();
+        expect(within(caixa).getByRole('button', { name: 'Criar usuário' })).toBeEnabled();
+      });
+
+      it('dados válidos: chama a API e mostra a confirmação', async () => {
+        const caixa = await abrirForm();
+        await preencher(caixa, papel);
+        await tocar(caixa);
+        const esperado = {
+          nome: 'Novo Nome',
+          email: 'novo@ex.com',
+          senha: SENHA_OK,
+          role: papel.papel,
+          condominioId: null,
+          especialidade: papel.especialidade ?? null
+        };
+        await waitFor(() => expect(m.chamarApi).toHaveBeenCalledWith('criar', esperado));
+        expect(await screen.findByRole('status')).toHaveTextContent('Usuário Novo Nome criado com sucesso.');
+        expect(screen.queryByRole('dialog', { name: 'Novo usuário' })).not.toBeInTheDocument();
+      });
+    });
+  }
+
+  it('gerente com id de condomínio: o id vai na chamada', async () => {
+    const caixa = await abrirForm();
+    await preencher(caixa, { papel: 'gerente', condominio: 'torre-10' });
+    await tocar(caixa);
+    await waitFor(() => expect(m.chamarApi).toHaveBeenCalledWith('criar', expect.objectContaining({ role: 'gerente', condominioId: 'torre-10' })));
+  });
+
+  it('cliente com id de condomínio inválido: recusado com mensagem, sem chamar a API', async () => {
+    const caixa = await abrirForm();
+    await preencher(caixa, { papel: 'cliente', condominio: '../x' });
+    await tocar(caixa);
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent(/id do condomínio/i);
+    expect(within(caixa).getByLabelText(/Condomínio \(id\)/)).toHaveAttribute('aria-invalid', 'true');
+    expect(m.chamarApi).not.toHaveBeenCalled();
+  });
+
+  it('o checklist da senha: verde em tempo real; só depois da 1ª tentativa o que falta fica vermelho', async () => {
+    const caixa = await abrirForm();
+    await fireEvent.input(within(caixa).getByLabelText(/Senha temporária/), { target: { value: 'Abcdefgh' } });
+    const lista = within(caixa).getByRole('list', { name: 'Requisitos da senha' });
+    const itens = () => Array.from(lista.querySelectorAll('li'));
+    expect(itens().filter((li) => li.classList.contains('ok'))).toHaveLength(3); // tamanho, maiúscula, minúscula
+    expect(itens().some((li) => li.classList.contains('falha'))).toBe(false); // ainda sem tentativa
+    await fireEvent.click(within(caixa).getByRole('button', { name: 'Criar usuário' }));
+    await within(caixa).findByRole('alert');
+    expect(itens().filter((li) => li.classList.contains('falha'))).toHaveLength(2); // número, especial
+    await fireEvent.input(within(caixa).getByLabelText(/Senha temporária/), { target: { value: 'Abcdefg1!' } });
+    expect(itens().every((li) => li.classList.contains('ok'))).toBe(true);
+  });
+
+  it('a mensagem de erro fica logo acima do botão', async () => {
+    const caixa = await abrirForm();
+    await preencher(caixa, { email: '' });
+    await tocar(caixa);
+    const alerta = await within(caixa).findByRole('alert');
+    expect(alerta.nextElementSibling).toBe(within(caixa).getByRole('button', { name: 'Criar usuário' }));
+  });
+
+  it('o botão mostra "Criando..." e fica ocupado enquanto a API não responde', async () => {
+    let terminar: (v?: unknown) => void = () => {};
+    m.chamarApi.mockReturnValue(new Promise((ok) => (terminar = ok)));
+    const caixa = await abrirForm();
+    await preencher(caixa, { papel: 'cliente' });
+    await tocar(caixa);
+    const botao = await within(caixa).findByRole('button', { name: 'Criando...' });
+    expect(botao).toBeDisabled();
+    expect(botao).toHaveAttribute('aria-busy', 'true');
+    terminar({ ok: true });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Novo usuário' })).not.toBeInTheDocument());
+  });
+
+  it('o formulário não depende da validação nativa do navegador (novalidate)', async () => {
+    const caixa = await abrirForm();
+    expect(caixa.querySelector('form')?.hasAttribute('novalidate')).toBe(true);
+  });
+
+  it.each([
+    ['servidor', new Error('Já existe uma conta com esse e-mail.'), /Já existe uma conta/],
+    ['rede', new Error('Sem conexão com o servidor. Verifique a internet.'), /Sem conexão/],
+    ['HTTP 500', new Error('Erro inesperado no servidor (HTTP 500).'), /HTTP 500/]
+  ])('falha de %s aparece para o admin e o botão volta a funcionar', async (_nome, erro, mensagem) => {
+    m.chamarApi.mockRejectedValue(erro);
+    const caixa = await abrirForm();
+    await preencher(caixa, { papel: 'cliente' });
+    await tocar(caixa);
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent(mensagem);
+    expect(within(caixa).getByRole('button', { name: 'Criar usuário' })).toBeEnabled();
+  });
+
+  it('falha sem mensagem (erro estranho) mostra o texto padrão', async () => {
+    m.chamarApi.mockRejectedValue({});
+    const caixa = await abrirForm();
+    await preencher(caixa, { papel: 'cliente' });
+    await tocar(caixa);
+    expect(await within(caixa).findByRole('alert')).toHaveTextContent('Não foi possível criar o usuário.');
+  });
+});

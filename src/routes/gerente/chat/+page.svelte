@@ -10,7 +10,10 @@
 
   async function enviar() {
     const t = texto;
-    if (!t.trim()) return;
+    if (!t.trim()) {
+      erro = 'Escreva uma mensagem antes de enviar.';
+      return;
+    }
     texto = '';
     erro = '';
     try {

@@ -227,3 +227,27 @@ test('endpoint condominio: sem token, não-admin e admin', async () => {
   assert.equal(ok.codigo, 200);
   assert.equal(d.docs.get('users/cli1').condominioId, 'c2');
 });
+
+test('CORS: pré-requisição OPTIONS e POST sem credencial para cada origem do Tauri e cada endpoint', async () => {
+  const origens = ['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost'];
+  const logicas = { criar: async () => ({ ok: true }) };
+  const h = endpoint(logicas.criar, { obterDeps: () => { throw new Error('não deve iniciar'); }, limitador: () => true, env: { VERCEL_ENV: 'production' } });
+  for (const origem of origens) {
+    const pre = await chamar(h, fakeReq({ metodo: 'OPTIONS', origem }));
+    assert.equal(pre.codigo, 204, origem);
+    assert.equal(pre.cabecalhos['Access-Control-Allow-Origin'], origem);
+    assert.match(pre.cabecalhos['Access-Control-Allow-Methods'], /POST/);
+    assert.match(pre.cabecalhos['Access-Control-Allow-Headers'], /Authorization/);
+    assert.match(pre.cabecalhos['Access-Control-Allow-Headers'], /Content-Type/);
+    // POST real sem credencial: 401 em JSON, COM os cabeçalhos de CORS (senão o app não consegue ler a resposta)
+    const post = await chamar(h, fakeReq({ origem, corpo: {} }));
+    assert.equal(post.codigo, 401, origem);
+    assert.equal(post.cabecalhos['Access-Control-Allow-Origin'], origem);
+    assert.equal(typeof post.corpo.erro, 'string');
+  }
+  const mal = await chamar(h, fakeReq({ metodo: 'OPTIONS', origem: 'https://malicioso.com' }));
+  assert.equal(mal.codigo, 403);
+  assert.equal(mal.cabecalhos['Access-Control-Allow-Origin'], undefined);
+  const get = await chamar(h, fakeReq({ metodo: 'GET', origem: origens[0] }));
+  assert.equal(get.codigo, 405);
+});

@@ -2,16 +2,27 @@
     import { goto } from "$app/navigation";
     import Icone from "$lib/components/Icone.svelte";
     import { authStore } from "$lib/auth.svelte";
+    import { rolarAte } from "$lib/validacao";
 
     let nome = $state("");
     let carregando = $state(false);
     let erro = $state("");
+    let invalido = $state(false);
+    let campo = $state<HTMLInputElement>();
 
     async function confirmar() {
-        if (!nome.trim()) return;
+        if (carregando) return;
+        // O estado de carregando vem ANTES de qualquer outro passo
         carregando = true;
         erro = "";
+        invalido = false;
         try {
+            if (!nome.trim()) {
+                erro = "Informe o nome do condomínio.";
+                invalido = true;
+                rolarAte(campo);
+                return;
+            }
             const resultado = await authStore.entrarNoCondominio(nome);
             if (resultado === "ok") {
                 goto("/cliente");
@@ -20,6 +31,10 @@
                 erro =
                     "Condomínio não encontrado. Confira o nome ou fale com a administração.";
             }
+        } catch (e) {
+            erro =
+                (e as Error)?.message ||
+                "Não foi possível confirmar o condomínio. Tente novamente.";
         } finally {
             carregando = false;
         }
@@ -53,15 +68,18 @@
             <input
                 type="text"
                 bind:value={nome}
+                bind:this={campo}
+                aria-invalid={invalido}
                 placeholder="Ex: Residencial Exemplo"
             />
         </label>
 
-        {#if erro}<p class="erro">{erro}</p>{/if}
+        {#if erro}<p class="erro-form" role="alert">{erro}</p>{/if}
 
         <button
             class="btn-primario"
-            disabled={carregando || !nome.trim()}
+            disabled={carregando}
+            aria-busy={carregando}
             onclick={confirmar}
         >
             {carregando ? "Buscando..." : "Confirmar"}

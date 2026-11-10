@@ -40,6 +40,10 @@
 
   async function salvarPreco(id: string) {
     const centavos = Math.round(Number(valorEdicao.replace(/\./g, '').replace(',', '.')) * 100);
+    if (!Number.isFinite(centavos) || centavos <= 0) {
+      msgPrecos = 'Informe um preço maior que zero (ex.: 65,00).';
+      return;
+    }
     await tentar(() => salvarPrecoServico(id, centavos), 'Preço salvo.');
     if (!msgPrecos.startsWith('Não')) editando = null;
   }
@@ -52,7 +56,7 @@
       <button class="btn-primario" onclick={publicar} disabled={ocupado}>Publicar catálogo inicial</button>
     </div>
   {/if}
-  {#if msgPrecos}<p class="nota" role="status">{msgPrecos}</p>{/if}
+  {#if msgPrecos}<p class={/^(Não|Informe)/.test(msgPrecos) ? 'erro-form' : 'nota'} role={/^(Não|Informe)/.test(msgPrecos) ? 'alert' : 'status'}>{msgPrecos}</p>{/if}
   <div class="tabela card">
     {#each servicos as s (s.id)}
       <div class="linha-preco">
@@ -66,7 +70,7 @@
         </span>
         {#if editando === s.id}
           <span class="edicao">
-            <input inputmode="decimal" bind:value={valorEdicao} aria-label={`Novo preço de ${s.nome}`} />
+            <input inputmode="decimal" bind:value={valorEdicao} aria-invalid={msgPrecos.startsWith('Informe')} aria-label={`Novo preço de ${s.nome}`} />
             <button class="mini" onclick={() => salvarPreco(s.id)} disabled={ocupado}>Salvar</button>
             <button class="mini" onclick={() => (editando = null)}>Cancelar</button>
           </span>

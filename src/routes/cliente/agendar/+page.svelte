@@ -3,6 +3,7 @@
   import Icone from '$lib/components/Icone.svelte';
   import { reserva } from '$lib/reserva.svelte';
   import { app } from '$lib/app.svelte';
+  import { rolarAte } from '$lib/validacao';
   import PainelPagamento from '$lib/components/PainelPagamento.svelte';
   import { dataExtensa } from '$lib/formato';
   import { brl, BUFFER_MIN } from '$lib/mock';
@@ -21,6 +22,8 @@
   let novoId = $state<string | null>(null);
   let modelo = $state('');
   let placa = $state('');
+  let placaInvalida = $state(false);
+  let campoPlaca = $state<HTMLInputElement>();
   let enviando = $state(false);
   let erro = $state('');
 
@@ -47,11 +50,23 @@
   const placaOk = $derived(/^[A-Za-z]{3}[0-9][A-Za-z0-9][0-9]{2}$/.test(placa.trim()));
 
   async function confirmar() {
-    if (!reserva.hora || novoId || enviando || !placaOk) return;
+    if (novoId || enviando) return;
+    // O estado de carregando vem ANTES de qualquer outro passo
     enviando = true;
     erro = '';
-    reserva.data = dataSel;
+    placaInvalida = false;
     try {
+      if (!reserva.hora) {
+        erro = 'Escolha um horário para o atendimento.';
+        return;
+      }
+      if (!placaOk) {
+        erro = 'Informe a placa do veículo (ex.: ABC1D23).';
+        placaInvalida = true;
+        rolarAte(campoPlaca);
+        return;
+      }
+      reserva.data = dataSel;
       novoId = await app.criarAgendamento({
         servicos: reserva.itens.map((s) => s.id),
         data: dataSel,
@@ -174,6 +189,8 @@
           maxlength="7"
           autocapitalize="characters"
           bind:value={placa}
+          bind:this={campoPlaca}
+          aria-invalid={placaInvalida}
         />
       </div>
 
@@ -197,8 +214,8 @@
 
     <div class="cta">
       {#if erro}<p class="erro-agendar" role="alert">{erro}</p>{/if}
-      <button class="btn-primario" disabled={!reserva.hora || !placaOk || enviando} onclick={confirmar}>
-        {#if enviando}Agendando...{:else if !reserva.hora}Escolha um horário{:else if !placaOk}Informe a placa{:else}Confirmar às {reserva.hora}{/if}
+      <button class="btn-primario" disabled={enviando} aria-busy={enviando} onclick={confirmar}>
+        {#if enviando}Agendando...{:else if reserva.hora}Confirmar às {reserva.hora}{:else}Confirmar agendamento{/if}
       </button>
     </div>
   {/if}
