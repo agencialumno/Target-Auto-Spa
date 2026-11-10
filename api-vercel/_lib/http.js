@@ -106,3 +106,34 @@ export function endpoint(
     }
   };
 }
+
+// Handler do webhook do Asaas: só POST, sem CORS (quem chama é o servidor do Asaas), sem Origin.
+// A autenticação é o cabeçalho asaas-access-token, conferido na lógica. Responde rápido e nunca
+// devolve detalhes internos.
+const limitadorWebhook = criarLimitador({ max: 600 });
+
+export function endpointWebhook({ obterDeps = dependencias, limitador = limitadorWebhook, env = process.env, processar } = {}) {
+  return async function handler(req, res) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
+
+    if (!limitador(ipDe(req))) {
+      res.setHeader('Retry-After', '60');
+      return res.status(429).json({ erro: 'Muitas requisições.' });
+    }
+    const tipo = String(req.headers['content-type'] ?? '');
+    if (!tipo.toLowerCase().startsWith('application/json')) return res.status(415).json({ erro: 'Envie JSON.' });
+    if (Number(req.headers['content-length'] ?? 0) > 65536) return res.status(413).json({ erro: 'Requisição grande demais.' });
+
+    try {
+      const logica = processar ?? (await import('./webhook-asaas.js')).processarWebhook;
+      const r = await logica({ ...obterDeps(), env, agora: () => new Date() }, req.headers, req.body);
+      return res.status(r.status).json(r.corpo);
+    } catch (e) {
+      // Só o nome do erro vai para o log: nunca o corpo do evento (pode ter dados pessoais)
+      console.error('erro no webhook:', e?.name);
+      return res.status(500).json({ erro: 'Erro interno.' });
+    }
+  };
+}
