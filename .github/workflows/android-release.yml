@@ -112,11 +112,34 @@ jobs:
           } > src-tauri/gen/android/keystore.properties
           python3 .github/scripts/assinar-android.py
 
-      - name: Build .aab
-        run: npm run tauri android build -- --aab
+      # Um único build gera os dois: o .aab e o .apk saem do mesmo Gradle, com o mesmo applicationId,
+      # a mesma versão e a mesma assinatura (signingConfig "release", injetado por assinar-android.py)
+      - name: Build .aab e .apk
+        run: npm run tauri android build -- --aab --apk
+
+      # Confere que o .apk está assinado com um certificado válido (não imprime o certificado nem segredos)
+      - name: Verificar assinatura do .apk
+        run: |
+          APK="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)"
+          test -n "$APK" || { echo '::error::.apk não gerado'; exit 1; }
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt2" dump badging "$APK" | grep -E "^package:" | sed -E "s/ platformBuildVersion.*//"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-aab
           path: src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           retention-days: 3
+
+      # .apk assinado, só para instalar direto no aparelho (sem Play Store). Artifact separado do .aab.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          retention-days: 3
+          if-no-files-found: error
+
+      # Não deixa o keystore nem as senhas no disco do runner depois do build
+      - name: Limpar keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" src-tauri/gen/android/keystore.properties
