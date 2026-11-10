@@ -35,3 +35,8 @@ chave-service-account*.json
 
 .vercel
 *-debug.log
+
+# Segredos: nunca versionar
+*.env
+.env.*
+asaas-*
