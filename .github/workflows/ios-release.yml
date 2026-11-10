@@ -143,13 +143,6 @@ jobs:
         run: |
           grep -rn -A6 "CFBundleURLTypes" src-tauri/gen/apple --include=Info.plist || echo "(sem CFBundleURLTypes: Google Sign-In sem client ID do iOS configurado)"
 
-      # Sem estas chaves o iOS derruba o app ao abrir a câmera/galeria. Falha o build se faltarem.
-      - name: Conferir textos de uso de câmera e fotos no Info.plist gerado
-        run: |
-          for K in NSCameraUsageDescription NSPhotoLibraryUsageDescription; do
-            grep -rq "$K" src-tauri/gen/apple --include=Info.plist || { echo "::error::$K ausente no Info.plist gerado (confira src-tauri/Info.ios.plist)"; exit 1; }
-          done
-          echo "Textos de câmera e fotos presentes."
 
       - name: Conferir versão no projeto gerado
         run: |
@@ -284,6 +277,12 @@ jobs:
           unzip -q "${{ steps.ipa.outputs.path }}" -d "$RUNNER_TEMP/ipa"
           APP="$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app | head -1)"
           echo "App: $APP"
+          # O Tauri só mescla src-tauri/Info.ios.plist durante o build, então a conferência é no .ipa.
+          # Sem estas chaves o iOS derruba o app ao abrir a câmera/galeria: falha o build.
+          for K in NSCameraUsageDescription NSPhotoLibraryUsageDescription; do
+            plutil -extract "$K" raw "$APP/Info.plist" > /dev/null || { echo "::error::$K ausente no Info.plist do .ipa (confira src-tauri/Info.ios.plist)"; exit 1; }
+          done
+          echo "Textos de câmera e fotos presentes no .ipa."
           echo "== Info.plist: chaves de ícone"
           plutil -p "$APP/Info.plist" | grep -i -B1 -A6 "icon" || echo "(nenhuma chave de ícone)"
           echo "== PNGs de ícone soltos no .app"
