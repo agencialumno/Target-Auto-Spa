@@ -7,7 +7,10 @@
     "test": "node --test"
   },
   "dependencies": {
-    "firebase-admin": "^14.5.0"
+    "firebase-admin": "14.5.0"
+  },
+  "overrides": {
+    "jose": "5.10.0"
   },
   "engines": {
     "node": "22.x"
