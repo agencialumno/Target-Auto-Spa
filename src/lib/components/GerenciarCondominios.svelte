@@ -1,7 +1,12 @@
 <script lang="ts">
   import {
+    CAPACIDADE_MAX,
+    capacidadeValida,
     criarCondominio,
+    definirCapacidade,
+    lerCapacidadeInsulfilm,
     listarCondominios,
+    salvarCapacidadeInsulfilm,
     removerCondominio,
     renomearCondominio,
     type Condominio
@@ -16,15 +21,22 @@
   let formAberto = $state(false);
   let editando = $state<Condominio | null>(null);
   let nome = $state('');
+  let capacidade = $state(1);
   let salvando = $state(false);
+
+  // Insulfilm: agenda externa única, com capacidade própria (config/insulfilm)
+  let capIns = $state(1);
+  let capInsSalvando = $state(false);
+  let capInsMsg = $state('');
   let erroForm = $state('');
 
   let removendo = $state<Condominio | null>(null);
   let apagando = $state(false);
   let erroRemover = $state('');
 
+  const limpoNome = (n: string) => n.trim().replace(/\s+/g, ' ');
   const idPrevisto = $derived(idDoCondominio(nome));
-  const podeSalvar = $derived(validarNome(nome) === null && !salvando);
+  const podeSalvar = $derived(validarNome(nome) === null && !salvando && (!editando || capacidadeValida(capacidade)));
 
   async function carregar() {
     carregando = true;
@@ -40,7 +52,21 @@
 
   $effect(() => {
     carregar();
+    lerCapacidadeInsulfilm().then((n) => (capIns = n)).catch(() => {});
   });
+
+  async function salvarCapIns() {
+    capInsSalvando = true;
+    capInsMsg = '';
+    try {
+      await salvarCapacidadeInsulfilm(Number(capIns));
+      capInsMsg = 'Capacidade do insulfilm salva.';
+    } catch (e: any) {
+      capInsMsg = e?.message || 'Não foi possível salvar.';
+    } finally {
+      capInsSalvando = false;
+    }
+  }
 
   function abrirNovo() {
     editando = null;
@@ -52,6 +78,7 @@
   function abrirEdicao(c: Condominio) {
     editando = c;
     nome = c.nome;
+    capacidade = c.capacidade;
     erroForm = '';
     formAberto = true;
   }
@@ -61,7 +88,10 @@
     salvando = true;
     erroForm = '';
     try {
-      if (editando) await renomearCondominio(editando.id, nome);
+      if (editando) {
+        if (limpoNome(nome) !== editando.nome) await renomearCondominio(editando.id, nome);
+        if (Number(capacidade) !== editando.capacidade) await definirCapacidade(editando.id, Number(capacidade));
+      }
       else await criarCondominio(nome);
       formAberto = false;
       await carregar();
@@ -91,6 +121,14 @@
 <div class="topo">
   <h2>Condomínios ({condominios.length})</h2>
   <button class="btn-primario novo" onclick={abrirNovo}>Novo condomínio</button>
+  <div class="caixa-ins">
+    <label class="campo">
+      <span>Insulfilm: vagas por horário (todos os condomínios)</span>
+      <input type="number" min="1" max={CAPACIDADE_MAX} step="1" bind:value={capIns} aria-label="Capacidade do insulfilm" />
+    </label>
+    <button class="sec" onclick={salvarCapIns} disabled={capInsSalvando || !capacidadeValida(Number(capIns))}>Salvar</button>
+    {#if capInsMsg}<small role="status">{capInsMsg}</small>{/if}
+  </div>
 </div>
 
 {#if carregando}
@@ -133,6 +171,13 @@
           <small>Identificador: {idPrevisto}</small>
         {/if}
       </label>
+      {#if editando}
+        <label class="campo">
+          <span>Vagas por horário (capacidade)</span>
+          <input type="number" min="1" max={CAPACIDADE_MAX} step="1" bind:value={capacidade} />
+          <small>Quantos agendamentos cabem no mesmo horário neste condomínio (1 a {CAPACIDADE_MAX}).</small>
+        </label>
+      {/if}
       {#if erroForm}<p class="erro">{erroForm}</p>{/if}
       <button class="btn-primario" type="submit" disabled={!podeSalvar}>
         {salvando ? 'Salvando...' : editando ? 'Salvar' : 'Criar condomínio'}
@@ -157,6 +202,14 @@
 {/if}
 
 <style>
+  .caixa-ins {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+    margin: 12px 0;
+  }
+
   .topo {
     display: flex;
     align-items: center;

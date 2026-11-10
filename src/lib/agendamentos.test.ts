@@ -5,9 +5,11 @@ import {
   chaveFoto,
   faltamFotos,
   fotosFeitas,
+  idVaga,
   inicioDe,
   lerAgendamento,
   montarAgendamento,
+  montarVaga,
   proximoStatus,
   slugAngulo,
   totalCentavos,
@@ -30,6 +32,8 @@ const novo = (extra: Partial<NovoAgendamento> = {}): NovoAgendamento => ({
   data: '2030-05-10',
   hora: '09:30',
   veiculo: { modelo: ' Gol ', placa: ' abc1d23 ' },
+  externo: false,
+  vagaId: 'c1_2030-05-10_09:30_1',
   ...extra
 });
 
@@ -65,8 +69,8 @@ describe('montarAgendamento (documento aceito pelas regras)', () => {
     expect(Object.keys(doc).sort()).toEqual(
       [
         'avaliacao', 'checklist', 'clienteId', 'clienteNome', 'condominioId', 'criadoEm', 'data',
-        'funcionarioId', 'funcionarioNome', 'hora', 'inicio', 'itens', 'observacoes', 'status',
-        'total', 'veiculo'
+        'externo', 'funcionarioId', 'funcionarioNome', 'hora', 'inicio', 'itens', 'observacoes',
+        'status', 'total', 'vagaId', 'veiculo'
       ].sort()
     );
   });
@@ -80,6 +84,27 @@ describe('montarAgendamento (documento aceito pelas regras)', () => {
   it('ignora campos extras que venham nos itens', () => {
     const extra = [{ ...itens[0], desconto: 99 } as Item];
     expect(montarAgendamento(novo({ itens: extra }), 1).itens).toEqual([itens[0]]);
+  });
+});
+
+describe('vagas de horário', () => {
+  it('id regular: condomínio, data, hora e número', () => {
+    expect(idVaga({ externo: false, condominioId: 'torre-10', data: '2030-05-10', hora: '09:30' }, 2)).toBe('torre-10_2030-05-10_09:30_2');
+  });
+
+  it('id externo: ext_ sem condomínio (a agenda do insulfilm é única)', () => {
+    expect(idVaga({ externo: true, condominioId: 'torre-10', data: '2030-05-10', hora: '14:00' }, 1)).toBe('ext_2030-05-10_14:00_1');
+  });
+
+  it('o documento da vaga tem só os 5 campos e nenhum dado pessoal', () => {
+    const v = montarVaga({ externo: false, condominioId: 'c1', data: '2030-05-10', hora: '09:30' }, 'ag9');
+    expect(v).toEqual({ condominioId: 'c1', data: '2030-05-10', hora: '09:30', externo: false, agendamentoId: 'ag9' });
+  });
+
+  it('o agendamento carrega externo e o id da vaga que ocupa', () => {
+    const d = montarAgendamento(novo({ externo: true, vagaId: 'ext_2030-05-10_14:00_1' }), 1);
+    expect(d.externo).toBe(true);
+    expect(d.vagaId).toBe('ext_2030-05-10_14:00_1');
   });
 });
 
@@ -170,6 +195,8 @@ describe('lerAgendamento', () => {
     expect(ag.funcionarioId).toBeNull();
     expect(ag.checklist.fotos).toEqual({});
     expect(ag.veiculo).toEqual({ modelo: '', placa: '' });
+    expect(ag.externo).toBe(false);
+    expect(ag.vagaId).toBe('');
     expect(ag.status).toBe('agendado');
   });
 

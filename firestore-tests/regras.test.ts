@@ -6,12 +6,12 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment
 } from '@firebase/rules-unit-testing';
-import { Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 // Roda contra o Firebase Emulator: `npm run test:rules`
 let env: RulesTestEnvironment;
 
-const PERFIS: Record<string, { role: string; condominioId: string | null }> = {
+const PERFIS: Record<string, { role: string; condominioId: string | null; especialidade?: string }> = {
   ana: { role: 'cliente', condominioId: 'c1' },
   bia: { role: 'cliente', condominioId: 'c2' },
   carlos: { role: 'cliente', condominioId: null },
@@ -19,8 +19,14 @@ const PERFIS: Record<string, { role: string; condominioId: string | null }> = {
   gabi: { role: 'gerente', condominioId: 'c2' },
   fun: { role: 'funcionario', condominioId: null },
   fran: { role: 'funcionario', condominioId: null },
+  fins: { role: 'funcionario', condominioId: null, especialidade: 'insulfilm' },
+  cap1: { role: 'cliente', condominioId: 'c3' },
+  cap2: { role: 'cliente', condominioId: 'c3' },
+  cap3: { role: 'cliente', condominioId: 'c3' },
+  ana2: { role: 'cliente', condominioId: 'c1' },
   gnulo: { role: 'gerente', condominioId: null },
   adm: { role: 'admin', condominioId: null },
+  // Papel legado (removido): contas antigas ainda existentes não podem nada
   ins: { role: 'insulfilm', condominioId: null }
 };
 
@@ -50,15 +56,19 @@ beforeEach(async () => {
     for (const uid of Object.keys(PERFIS)) await setDoc(doc(db, 'users', uid), perfil(uid));
     await setDoc(doc(db, 'condominios', 'c1'), { nome: 'Cond 1', nomeNormalizado: 'cond 1' });
     await setDoc(doc(db, 'condominios', 'c2'), { nome: 'Cond 2', nomeNormalizado: 'cond 2' });
-    await setDoc(doc(db, 'servicos', 's1'), { nome: 'Lavagem', precoCentavos: 6500, duracaoMin: 45, ativo: true });
-    await setDoc(doc(db, 'servicos', 's2'), { nome: 'Polimento', precoCentavos: 20000, duracaoMin: 120, ativo: true });
+    await setDoc(doc(db, 'condominios', 'c3'), { nome: 'Cond 3', nomeNormalizado: 'cond 3', capacidade: 2 });
+    await setDoc(doc(db, 'servicos', 's1'), { nome: 'Lavagem', categoria: 'lavagem', precoCentavos: 6500, duracaoMin: 45, ativo: true });
+    await setDoc(doc(db, 'servicos', 's2'), { nome: 'Polimento', categoria: 'estetica', precoCentavos: 20000, duracaoMin: 120, ativo: true });
     await setDoc(doc(db, 'servicos', 's3'), { nome: 'Antigo', precoCentavos: 5000, duracaoMin: 30, ativo: false });
+    await setDoc(doc(db, 'servicos', 's4'), { nome: 'Insulfilm', categoria: 'insulfilm', precoCentavos: 35000, duracaoMin: 90, ativo: true });
+    await setDoc(doc(db, 'servicos', 's5'), { nome: 'Insulfilm Premium', categoria: 'insulfilm', precoCentavos: 68000, duracaoMin: 120, ativo: true });
     const base = {
       clienteNome: 'x',
+      externo: false,
       itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 }],
       total: 6500,
       data: '2030-01-01',
-      hora: '09:00',
+      hora: '08:00',
       inicio: Timestamp.fromDate(new Date('2030-01-01T12:00:00Z')),
       veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
       checklist: { fotos: {} },
@@ -66,7 +76,10 @@ beforeEach(async () => {
       funcionarioId: null,
       funcionarioNome: null
     };
-    await setDoc(doc(db, 'agendamentos', 'ag1'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'agendado' });
+    await setDoc(doc(db, 'agendamentos', 'ag1'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'agendado', vagaId: 'c1_2030-01-01_08:00_1' });
+    await setDoc(doc(db, 'ocupacao', 'c1_2030-01-01_08:00_1'), { condominioId: 'c1', data: '2030-01-01', hora: '08:00', externo: false, agendamentoId: 'ag1' });
+    await setDoc(doc(db, 'ocupacao', 'ext_2030-01-01_10:00_1'), { condominioId: 'c2', data: '2030-01-01', hora: '10:00', externo: true, agendamentoId: 'agExt' });
+    await setDoc(doc(db, 'agendamentos', 'agExt'), { ...base, clienteId: 'bia', condominioId: 'c2', status: 'agendado', externo: true, hora: '10:00', vagaId: 'ext_2030-01-01_10:00_1', itens: [{ servicoId: 's4', nome: 'Insulfilm', precoCentavos: 35000 }], total: 35000, funcionarioId: 'fins', funcionarioNome: 'fins' });
     await setDoc(doc(db, 'agendamentos', 'ag2'), { ...base, clienteId: 'bia', condominioId: 'c2', status: 'agendado' });
     // Agendamento sem condomínio: gerente sem condomínio NÃO pode enxergar (null == null)
     await setDoc(doc(db, 'agendamentos', 'agNulo'), { ...base, clienteId: 'carlos', condominioId: null, status: 'agendado' });
@@ -241,8 +254,11 @@ describe('condominios e servicos (leitura logada, escrita admin)', () => {
   });
 });
 
+const idVaga = (d: any, n = 1) => (d.externo ? `ext_${d.data}_${d.hora}_${n}` : `${d.condominioId}_${d.data}_${d.hora}_${n}`);
+const comVaga = (d: any) => ({ vagaId: idVaga(d), ...d });
+
 describe('agendamentos', () => {
-  const ag = (extra: Record<string, unknown> = {}) => ({
+  const ag = (extra: Record<string, unknown> = {}) => comVaga({
     clienteId: 'ana',
     clienteNome: 'Ana',
     condominioId: 'c1',
@@ -258,6 +274,7 @@ describe('agendamentos', () => {
     observacoes: '',
     checklist: { fotos: {} },
     avaliacao: null,
+    externo: false,
     criadoEm: serverTimestamp(),
     ...extra
   });
@@ -312,8 +329,17 @@ describe('agendamentos', () => {
   });
 
   describe('criação', () => {
-    const criar = (uid: string | null, dados: Record<string, unknown>) =>
-      setDoc(doc(como(uid), 'agendamentos', 'novo'), dados);
+    // Agendamento + vaga no mesmo batch (vaga === null: só o agendamento, sem vaga)
+    const criar = (uid: string | null, dados: Record<string, unknown>, vaga: Record<string, unknown> | null = {}) => {
+      const db = como(uid);
+      const b = writeBatch(db);
+      b.set(doc(db, 'agendamentos', 'novo'), dados);
+      if (vaga !== null) {
+        const d = dados as any;
+        b.set(doc(db, 'ocupacao', String(d.vagaId)), { condominioId: d.condominioId, data: d.data, hora: d.hora, externo: d.externo, agendamentoId: 'novo', ...vaga });
+      }
+      return b.commit();
+    };
 
     it('cliente cria o próprio, no próprio condomínio, "agendado", preço do catálogo', async () => {
       await assertSucceeds(criar('ana', ag()));
@@ -756,5 +782,411 @@ describe('cadastro de condomínios pelo admin (tela /admin)', () => {
     await assertFails(updateDoc(doc(como('gui'), 'users', 'gui'), { condominioId: 'c2' }));
     await assertFails(updateDoc(doc(como('ana'), 'users', 'ana'), { condominioId: 'c2' }));
     await assertFails(updateDoc(doc(como('adm'), 'users', 'gui'), { condominioId: 'c2' })); // admin pelo cliente também não: usa a API
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Ocupação de horários (capacidade) e agendamentos externos (insulfilm)
+// ---------------------------------------------------------------------------------------------
+describe('ocupação de horários', () => {
+  const agBase = (extra: Record<string, unknown> = {}) =>
+    comVaga({
+      clienteId: 'ana',
+      clienteNome: 'Ana',
+      condominioId: 'c1',
+      itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 }],
+      total: 6500,
+      data: '2030-02-01',
+      hora: '09:00',
+      inicio: futuro(),
+      status: 'agendado',
+      funcionarioId: null,
+      funcionarioNome: null,
+      veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
+      observacoes: '',
+      checklist: { fotos: {} },
+      avaliacao: null,
+      externo: false,
+      criadoEm: serverTimestamp(),
+      ...extra
+    });
+
+  // id do agendamento, agendamento e vaga no mesmo batch
+  const reservar = (uid: string, agId: string, dados: any, vaga: Record<string, unknown> = {}) => {
+    const db = como(uid);
+    const b = writeBatch(db);
+    b.set(doc(db, 'agendamentos', agId), dados);
+    b.set(doc(db, 'ocupacao', dados.vagaId), {
+      condominioId: dados.condominioId,
+      data: dados.data,
+      hora: dados.hora,
+      externo: dados.externo,
+      agendamentoId: agId,
+      ...vaga
+    });
+    return b.commit();
+  };
+
+  const cap = (uid: string, n: number, agId: string, extra: Record<string, unknown> = {}) =>
+    reservar(uid, agId, agBase({ clienteId: uid, condominioId: 'c3', vagaId: idVaga({ condominioId: 'c3', data: '2030-02-01', hora: '09:00' }, n), ...extra }));
+
+  describe('vaga única', () => {
+    it('cria o agendamento e a vaga juntos', async () => {
+      await assertSucceeds(reservar('ana', 'a1', agBase()));
+    });
+
+    it('a mesma vaga NÃO é dada a dois clientes (vaga duplicada negada)', async () => {
+      await assertSucceeds(reservar('ana', 'a1', agBase()));
+      await assertFails(reservar('ana2', 'a2', agBase({ clienteId: 'ana2' })));
+    });
+
+    it('com capacidade padrão (1) a vaga 2 não existe', async () => {
+      await assertSucceeds(reservar('ana', 'a1', agBase()));
+      await assertFails(reservar('ana2', 'a2', agBase({ clienteId: 'ana2', vagaId: idVaga({ condominioId: 'c1', data: '2030-02-01', hora: '09:00' }, 2) })));
+    });
+
+    it('capacidade 2: aceita duas vagas e NEGA a terceira', async () => {
+      await assertSucceeds(cap('cap1', 1, 'k1'));
+      await assertSucceeds(cap('cap2', 2, 'k2'));
+      await assertFails(cap('cap3', 3, 'k3'));
+      await assertFails(cap('cap3', 1, 'k4')); // vaga 1 já ocupada
+      await assertFails(cap('cap3', 2, 'k5')); // vaga 2 já ocupada
+    });
+
+    it('horários diferentes e condomínios diferentes não competem', async () => {
+      await assertSucceeds(reservar('ana', 'a1', agBase()));
+      await assertSucceeds(reservar('ana2', 'a2', agBase({ clienteId: 'ana2', hora: '09:30' })));
+      await assertSucceeds(reservar('bia', 'a3', agBase({ clienteId: 'bia', condominioId: 'c2' })));
+    });
+
+    it('vaga de agendamento cancelado volta a ficar livre', async () => {
+      await assertSucceeds(reservar('ana', 'a1', agBase()));
+      const db = como('ana');
+      const b = writeBatch(db);
+      b.update(doc(db, 'agendamentos', 'a1'), { status: 'cancelado', atualizadoEm: serverTimestamp() });
+      b.delete(doc(db, 'ocupacao', agBase().vagaId));
+      await assertSucceeds(b.commit());
+      await assertSucceeds(reservar('ana2', 'a2', agBase({ clienteId: 'ana2' })));
+    });
+  });
+
+  describe('a vaga precisa bater com o agendamento (nada de vaga solta ou forjada)', () => {
+    it('agendamento SEM vaga no batch é negado', async () => {
+      await assertFails(setDoc(doc(como('ana'), 'agendamentos', 'a1'), agBase()));
+    });
+
+    it('vaga SEM agendamento no batch é negada (ninguém reserva vaga à toa)', async () => {
+      await assertFails(
+        setDoc(doc(como('ana'), 'ocupacao', 'c1_2030-02-01_09:00_1'), {
+          condominioId: 'c1', data: '2030-02-01', hora: '09:00', externo: false, agendamentoId: 'nada'
+        })
+      );
+    });
+
+    it('agendamentoId da vaga diferente do agendamento é negado', async () => {
+      await assertFails(reservar('ana', 'a1', agBase(), { agendamentoId: 'outro' }));
+    });
+
+    it('vaga de outro horário, data ou condomínio que o agendamento é negada', async () => {
+      await assertFails(reservar('ana', 'a1', agBase(), { hora: '10:00' }));
+      await assertFails(reservar('ana', 'a1', agBase(), { data: '2030-02-02' }));
+      await assertFails(reservar('ana', 'a1', agBase(), { condominioId: 'c2' }));
+    });
+
+    it('id da vaga que não corresponde ao horário é negado', async () => {
+      await assertFails(reservar('ana', 'a1', agBase({ vagaId: 'c1_2030-02-01_15:00_1' })));
+      await assertFails(reservar('ana', 'a1', agBase({ vagaId: 'qualquer-coisa' })));
+    });
+
+    it('vaga 0, negativa, não numérica ou grande demais é negada', async () => {
+      for (const sufixo of ['0', '-1', 'x', '99', '100']) {
+        await assertFails(reservar('ana', 'a1', agBase({ vagaId: `c1_2030-02-01_09:00_${sufixo}` })));
+      }
+    });
+
+    it('vaga com campo extra ou dado pessoal é negada', async () => {
+      await assertFails(reservar('ana', 'a1', agBase(), { clienteNome: 'Ana' }));
+    });
+
+    it('cliente não reserva vaga em condomínio que não é o dele', async () => {
+      await assertFails(reservar('ana', 'a1', agBase({ condominioId: 'c2' })));
+    });
+
+    it('não atualiza vaga existente, nem o dono', async () => {
+      for (const uid of ['ana', 'gui', 'adm']) {
+        await assertFails(updateDoc(doc(como(uid), 'ocupacao', 'c1_2030-01-01_08:00_1'), { agendamentoId: 'ag2' }));
+        await assertFails(setDoc(doc(como(uid), 'ocupacao', 'c1_2030-01-01_08:00_1'), { condominioId: 'c1', data: '2030-01-01', hora: '08:00', externo: false, agendamentoId: 'ag1' }));
+      }
+    });
+
+    it('gerente, funcionário, admin e anônimo não criam vaga', async () => {
+      for (const uid of ['gui', 'fun', 'adm', null]) {
+        await assertFails(
+          setDoc(doc(como(uid), 'ocupacao', 'c1_2030-03-01_09:00_1'), {
+            condominioId: 'c1', data: '2030-03-01', hora: '09:00', externo: false, agendamentoId: 'x'
+          })
+        );
+      }
+    });
+  });
+
+  describe('liberar a vaga (cancelamento)', () => {
+    const cancelaE = (uid: string, agId = 'ag1', vaga = 'c1_2030-01-01_08:00_1') => {
+      const db = como(uid);
+      const b = writeBatch(db);
+      b.update(doc(db, 'agendamentos', agId), { status: 'cancelado', atualizadoEm: serverTimestamp() });
+      b.delete(doc(db, 'ocupacao', vaga));
+      return b.commit();
+    };
+
+    it('dono, gerente do condomínio e admin cancelam e liberam', async () => {
+      await assertSucceeds(cancelaE('ana'));
+    });
+
+    it('gerente do condomínio libera', async () => {
+      await assertSucceeds(cancelaE('gui'));
+    });
+
+    it('admin libera', async () => {
+      await assertSucceeds(cancelaE('adm'));
+    });
+
+    it('outro cliente, gerente de outro condomínio, funcionário e anônimo NÃO liberam', async () => {
+      for (const uid of ['bia', 'ana2', 'gabi', 'gnulo', 'fun']) await assertFails(cancelaE(uid));
+    });
+
+    it('apagar a vaga sem cancelar o agendamento é negado (para não-admin)', async () => {
+      for (const uid of ['ana', 'gui']) {
+        await assertFails(deleteDoc(doc(como(uid), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+      }
+    });
+
+    it('admin apaga vaga solta', async () => {
+      await assertSucceeds(deleteDoc(doc(como('adm'), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+    });
+  });
+
+  describe('leitura', () => {
+    it('cliente e gerente leem as vagas do próprio condomínio; admin lê todas', async () => {
+      await assertSucceeds(getDoc(doc(como('ana'), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+      await assertSucceeds(getDoc(doc(como('gui'), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+      await assertSucceeds(getDoc(doc(como('adm'), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+    });
+
+    it('NÃO leem vaga regular de outro condomínio, nem sem login, nem sem condomínio', async () => {
+      for (const uid of ['bia', 'gabi', 'carlos', 'gnulo', null]) {
+        await assertFails(getDoc(doc(como(uid), 'ocupacao', 'c1_2030-01-01_08:00_1')));
+      }
+    });
+
+    it('vagas externas: qualquer usuário logado lê; anônimo não', async () => {
+      for (const uid of ['ana', 'bia', 'carlos', 'gui', 'fun', 'adm']) {
+        await assertSucceeds(getDoc(doc(como(uid), 'ocupacao', 'ext_2030-01-01_10:00_1')));
+      }
+      await assertFails(getDoc(doc(como(null), 'ocupacao', 'ext_2030-01-01_10:00_1')));
+    });
+
+    it('consultas que o app faz: vagas do condomínio e vagas externas', async () => {
+      await assertSucceeds(
+        getDocs(query(collection(como('ana'), 'ocupacao'), where('condominioId', '==', 'c1'), where('externo', '==', false), where('data', '>=', '2030-01-01')))
+      );
+      await assertSucceeds(
+        getDocs(query(collection(como('ana'), 'ocupacao'), where('externo', '==', true), where('data', '>=', '2030-01-01')))
+      );
+      await assertFails(getDocs(query(collection(como('ana'), 'ocupacao'), where('condominioId', '==', 'c2'))));
+      await assertFails(getDocs(collection(como('ana'), 'ocupacao')));
+    });
+  });
+
+  describe('capacidade configurável (só admin)', () => {
+    it('admin edita a capacidade do condomínio e a do insulfilm', async () => {
+      await assertSucceeds(updateDoc(doc(como('adm'), 'condominios', 'c1'), { capacidade: 3 }));
+      await assertSucceeds(setDoc(doc(como('adm'), 'config', 'insulfilm'), { capacidade: 2 }));
+    });
+
+    it('valores inválidos são negados', async () => {
+      for (const v of [0, -1, 21, 1.5, '2', null]) {
+        await assertFails(updateDoc(doc(como('adm'), 'condominios', 'c1'), { capacidade: v }));
+        await assertFails(setDoc(doc(como('adm'), 'config', 'insulfilm'), { capacidade: v }));
+      }
+      await assertFails(setDoc(doc(como('adm'), 'config', 'insulfilm'), { capacidade: 2, extra: 1 }));
+      await assertFails(setDoc(doc(como('adm'), 'config', 'outra'), { capacidade: 2 }));
+    });
+
+    it('cliente, gerente, funcionário e anônimo NÃO editam capacidade', async () => {
+      for (const uid of ['ana', 'gui', 'fun', 'ins', null]) {
+        await assertFails(updateDoc(doc(como(uid), 'condominios', 'c1'), { capacidade: 50 }));
+        await assertFails(setDoc(doc(como(uid), 'config', 'insulfilm'), { capacidade: 50 }));
+      }
+    });
+
+    it('capacidade vira limite real: aumentar libera a terceira vaga', async () => {
+      await assertSucceeds(updateDoc(doc(como('adm'), 'condominios', 'c3'), { capacidade: 3 }));
+      await assertSucceeds(cap('cap1', 1, 'k1'));
+      await assertSucceeds(cap('cap2', 2, 'k2'));
+      await assertSucceeds(cap('cap3', 3, 'k3'));
+    });
+
+    it('usuários logados leem config/insulfilm', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'config', 'insulfilm'), { capacidade: 2 }));
+      await assertSucceeds(getDoc(doc(como('ana'), 'config', 'insulfilm')));
+      await assertFails(getDoc(doc(como(null), 'config', 'insulfilm')));
+    });
+  });
+});
+
+describe('agendamentos externos (insulfilm como funcionário atribuído)', () => {
+  const ext = (extra: Record<string, unknown> = {}) =>
+    comVaga({
+      clienteId: 'ana',
+      clienteNome: 'Ana',
+      condominioId: 'c1',
+      itens: [{ servicoId: 's4', nome: 'Insulfilm', precoCentavos: 35000 }],
+      total: 35000,
+      data: '2030-02-01',
+      hora: '14:00',
+      inicio: futuro(),
+      status: 'agendado',
+      funcionarioId: null,
+      funcionarioNome: null,
+      veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
+      observacoes: '',
+      checklist: { fotos: {} },
+      avaliacao: null,
+      externo: true,
+      criadoEm: serverTimestamp(),
+      ...extra
+    });
+
+  const reservar = (uid: string, agId: string, dados: any, vaga: Record<string, unknown> = {}) => {
+    const db = como(uid);
+    const b = writeBatch(db);
+    b.set(doc(db, 'agendamentos', agId), dados);
+    b.set(doc(db, 'ocupacao', dados.vagaId), {
+      condominioId: dados.condominioId, data: dados.data, hora: dados.hora, externo: dados.externo, agendamentoId: agId, ...vaga
+    });
+    return b.commit();
+  };
+
+  const itens = {
+    lav: { servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 },
+    ins: { servicoId: 's4', nome: 'Insulfilm', precoCentavos: 35000 },
+    ins2: { servicoId: 's5', nome: 'Insulfilm Premium', precoCentavos: 68000 }
+  };
+
+  describe('campo externo validado contra a categoria do catálogo', () => {
+    it('só insulfilm => externo == true (vaga ext_)', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext()));
+    });
+
+    it('2 itens de insulfilm => externo true', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext({ itens: [itens.ins, itens.ins2], total: 103000 })));
+    });
+
+    it('nenhum insulfilm => externo == false', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext({ itens: [itens.lav], total: 6500, externo: false, vagaId: 'c1_2030-02-01_14:00_1' })));
+    });
+
+    it('MISTURA de insulfilm com outro serviço é negada, nos dois valores de externo', async () => {
+      const mistura = { itens: [itens.lav, itens.ins], total: 41500 };
+      await assertFails(reservar('ana', 'e1', ext({ ...mistura, externo: true })));
+      await assertFails(reservar('ana', 'e2', ext({ ...mistura, externo: false, vagaId: 'c1_2030-02-01_14:00_1' })));
+    });
+
+    it('externo FORJADO é negado: insulfilm marcado como regular e lavagem marcada como externa', async () => {
+      await assertFails(reservar('ana', 'e1', ext({ externo: false, vagaId: 'c1_2030-02-01_14:00_1' })));
+      await assertFails(reservar('ana', 'e2', ext({ itens: [itens.lav], total: 6500 })));
+    });
+
+    it('externo ausente ou com tipo errado é negado', async () => {
+      const { externo, ...semExterno } = ext() as any;
+      const vagaExt = { externo: true };
+      await assertFails(reservar('ana', 'e1', semExterno, vagaExt));
+      await assertFails(reservar('ana', 'e2', ext({ externo: 'true' }), vagaExt));
+      await assertFails(reservar('ana', 'e3', ext({ externo: 1 }), vagaExt));
+    });
+
+    it('o cliente não consegue mudar externo nem vagaId depois de criar', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext()));
+      for (const dados of [{ externo: false }, { vagaId: 'x' }]) {
+        await assertFails(updateDoc(doc(como('ana'), 'agendamentos', 'e1'), { atualizadoEm: serverTimestamp(), ...dados }));
+        await assertFails(updateDoc(doc(como('gui'), 'agendamentos', 'e1'), { atualizadoEm: serverTimestamp(), ...dados }));
+      }
+    });
+  });
+
+  describe('vagas externas (agenda única, qualquer condomínio)', () => {
+    it('vaga ext_ não depende do condomínio: o mesmo horário é disputado por todos', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext()));
+      await assertFails(reservar('bia', 'e2', ext({ clienteId: 'bia', condominioId: 'c2' })));
+    });
+
+    it('capacidade do insulfilm (config) vale: padrão 1, com 2 aceita duas e nega a terceira', async () => {
+      await assertSucceeds(reservar('ana', 'e1', ext()));
+      await assertFails(reservar('ana2', 'e2', ext({ clienteId: 'ana2', vagaId: 'ext_2030-02-01_14:00_2' })));
+      await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'config', 'insulfilm'), { capacidade: 2 }));
+      await assertSucceeds(reservar('ana2', 'e2', ext({ clienteId: 'ana2', vagaId: 'ext_2030-02-01_14:00_2' })));
+      await assertFails(reservar('bia', 'e3', ext({ clienteId: 'bia', condominioId: 'c2', vagaId: 'ext_2030-02-01_14:00_3' })));
+    });
+
+    it('id com prefixo de condomínio numa vaga externa (ou ext_ numa regular) é negado', async () => {
+      await assertFails(reservar('ana', 'e1', ext({ vagaId: 'c1_2030-02-01_14:00_1' })));
+      await assertFails(reservar('ana', 'e2', ext({ itens: [itens.lav], total: 6500, externo: false, vagaId: 'ext_2030-02-01_14:00_1' })));
+    });
+  });
+
+  describe('atribuição só a funcionário com especialidade insulfilm', () => {
+    const atribui = (uid: string, id: string, f: string) =>
+      updateDoc(doc(como(uid), 'agendamentos', id), { funcionarioId: f, funcionarioNome: f, atualizadoEm: serverTimestamp() });
+
+    it('gerente atribui o agendamento externo a quem tem a especialidade', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) =>
+        setDoc(doc(ctx.firestore(), 'agendamentos', 'agExtC1'), {
+          clienteId: 'ana', condominioId: 'c1', status: 'agendado', externo: true, funcionarioId: null, itens: [], total: 0
+        })
+      );
+      await assertSucceeds(atribui('gui', 'agExtC1', 'fins'));
+    });
+
+    it('NEGA atribuir o externo a funcionário sem a especialidade, a cliente ou a inexistente', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) =>
+        setDoc(doc(ctx.firestore(), 'agendamentos', 'agExtC1'), {
+          clienteId: 'ana', condominioId: 'c1', status: 'agendado', externo: true, funcionarioId: null, itens: [], total: 0
+        })
+      );
+      for (const f of ['fun', 'fran', 'ana', 'adm', 'naoexiste']) {
+        await assertFails(atribui('gui', 'agExtC1', f));
+      }
+    });
+
+    it('agendamento regular continua podendo ir para qualquer funcionário', async () => {
+      await assertSucceeds(atribui('gui', 'ag1', 'fun'));
+    });
+
+    it('o funcionário não se atribui nem passa o atendimento adiante', async () => {
+      await assertFails(atribui('fins', 'agExt', 'fran'));
+    });
+
+    it('especialidade só nasce pelo admin/API: ninguém a grava pelo cliente', async () => {
+      await assertFails(updateDoc(doc(como('fun'), 'users', 'fun'), { especialidade: 'insulfilm' }));
+      await assertFails(updateDoc(doc(como('adm'), 'users', 'fun'), { especialidade: 'insulfilm' }));
+      await assertFails(setDoc(doc(como('novo'), 'users', 'novo'), { nome: 'x', email: 'x@ex.com', role: 'cliente', condominioId: null, especialidade: 'insulfilm' }));
+    });
+  });
+
+  describe('o insulfilm usa as telas e regras do funcionário', () => {
+    it('funcionário com especialidade lê, avança e grava fotos do externo atribuído', async () => {
+      await assertSucceeds(getDoc(doc(como('fins'), 'agendamentos', 'agExt')));
+      await assertSucceeds(updateDoc(doc(como('fins'), 'agendamentos', 'agExt'), { status: 'em_andamento', atualizadoEm: serverTimestamp() }));
+      await assertSucceeds(
+        updateDoc(doc(como('fins'), 'agendamentos', 'agExt'), { 'checklist.fotos.antes_frente': { path: 'agendamentos/agExt/checklist/antes_frente.jpg', em: Timestamp.now() }, atualizadoEm: serverTimestamp() })
+      );
+    });
+
+    it('NÃO lê nem altera externo de que não é responsável; o papel legado "insulfilm" nada pode', async () => {
+      await assertFails(getDoc(doc(como('fran'), 'agendamentos', 'agExt')));
+      await assertFails(updateDoc(doc(como('fran'), 'agendamentos', 'agExt'), { status: 'em_andamento', atualizadoEm: serverTimestamp() }));
+      await assertFails(getDoc(doc(como('ins'), 'agendamentos', 'agExt')));
+    });
   });
 });

@@ -8,7 +8,7 @@ const m = vi.hoisted(() => {
     setDoc: vi.fn(async (ref: any, dados: any) => void escritas.push({ tipo: 'set', ref, dados })),
     updateDoc: vi.fn(async (ref: any, dados: any) => void escritas.push({ tipo: 'update', ref, dados })),
     getDoc: vi.fn(),
-    lote: { set: vi.fn(), update: vi.fn(), commit: vi.fn(async () => {}) },
+    lote: { set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn(async () => {}) },
     onSnapshot: vi.fn(() => () => {}),
     uploadBytes: vi.fn(async () => ({})),
     getDownloadURL: vi.fn(async () => 'https://exemplo/foto.jpg')
@@ -56,45 +56,108 @@ beforeEach(() => {
   app.parar();
   aplicarCatalogo([
     { id: 'eco01', data: { precoCentavos: 6500, nome: 'Banho Básico', ativo: true } },
-    { id: 'eco02', data: { precoCentavos: 9000, nome: 'Banho', ativo: false } }
+    { id: 'eco02', data: { precoCentavos: 9000, nome: 'Banho', ativo: false } },
+    { id: 'eco24', data: { precoCentavos: 35000, nome: 'Insulfilm Poliéster com Garantia (Traseira e Laterais)', ativo: true } }
   ]);
   app.iniciar(cliente);
 });
 
 describe('criarAgendamento', () => {
-  it('grava no Firestore com cliente, condomínio, nome e preço do serviço no momento da contratação', async () => {
-    const id = await app.criarAgendamento({
-      servicos: ['eco01'],
-      data: '2030-05-10',
-      hora: '09:00',
-      veiculo: { modelo: 'Gol', placa: 'abc1d23' }
-    });
-    const escrita = m.escritas.find((e) => e.tipo === 'set' && e.ref.caminho.startsWith('agendamentos/'))!;
-    expect(escrita.ref.id).toBe(id);
-    expect(escrita.dados).toMatchObject({
+  const base = { data: '2030-05-10', hora: '09:00', veiculo: { modelo: 'Gol', placa: 'abc1d23' } };
+
+  it('agendamento e vaga vão no MESMO batch, com nome e preço do serviço no momento da contratação', async () => {
+    const id = await app.criarAgendamento({ ...base, servicos: ['eco01'] });
+    expect(m.lote.commit).toHaveBeenCalledTimes(1);
+    const [refAg, dadosAg] = m.lote.set.mock.calls[0] as any[];
+    const [refVaga, dadosVaga] = m.lote.set.mock.calls[1] as any[];
+    expect(refAg.id).toBe(id);
+    expect(dadosAg).toMatchObject({
       clienteId: 'u1',
       clienteNome: 'Ana',
       condominioId: 'c1',
       itens: [{ servicoId: 'eco01', nome: 'Banho Básico', precoCentavos: 6500 }],
       total: 6500,
       status: 'agendado',
+      externo: false,
+      vagaId: 'c1_2030-05-10_09:00_1',
       veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
       criadoEm: 'SERVER_TS'
     });
+    expect(refVaga.caminho).toBe('ocupacao/c1_2030-05-10_09:00_1');
+    expect(dadosVaga).toEqual({ condominioId: 'c1', data: '2030-05-10', hora: '09:00', externo: false, agendamentoId: id });
+  });
+
+  it('serviço de insulfilm vira externo e usa a vaga ext_', async () => {
+    await app.criarAgendamento({ ...base, servicos: ['eco24'] });
+    const [, dadosAg] = m.lote.set.mock.calls[0] as any[];
+    expect(dadosAg).toMatchObject({ externo: true, vagaId: 'ext_2030-05-10_09:00_1' });
+    expect((m.lote.set.mock.calls[1] as any[])[0].caminho).toBe('ocupacao/ext_2030-05-10_09:00_1');
+  });
+
+  it('insulfilm misturado com outro serviço é recusado, sem escrever nada', async () => {
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01', 'eco24'] })).rejects.toThrow(/separado/i);
+    expect(m.lote.commit).not.toHaveBeenCalled();
+  });
+
+  it('vaga 1 ocupada: tenta a 2 (capacidade 2) e confirma', async () => {
+    app.capacidade = 2;
+    m.lote.commit.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'permission-denied' }));
+    m.getDoc.mockResolvedValueOnce({ exists: () => true }); // a vaga 1 existe: alguém pegou
+    await app.criarAgendamento({ ...base, servicos: ['eco01'] });
+    expect(m.lote.commit).toHaveBeenCalledTimes(2);
+    const vagas = m.lote.set.mock.calls.filter((c: any[]) => c[0].caminho?.startsWith('ocupacao/')).map((c: any[]) => c[0].caminho);
+    expect(vagas).toEqual(['ocupacao/c1_2030-05-10_09:00_1', 'ocupacao/c1_2030-05-10_09:00_2']);
+  });
+
+  it('todas as vagas ocupadas: "Horário indisponível"', async () => {
+    app.capacidade = 2;
+    m.lote.commit.mockRejectedValue(Object.assign(new Error('x'), { code: 'permission-denied' }));
+    m.getDoc.mockResolvedValue({ exists: () => true });
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toThrow(/Horário indisponível/);
+    expect(m.lote.commit).toHaveBeenCalledTimes(2);
+    m.lote.commit.mockResolvedValue(undefined);
+  });
+
+  it('erro que não é vaga ocupada (ex.: preço mudou) é repassado, sem tentar outra vaga', async () => {
+    app.capacidade = 3;
+    m.lote.commit.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'permission-denied' }));
+    // getDoc da vaga: não existe
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(m.lote.commit).toHaveBeenCalledTimes(1);
   });
 
   it('recusa serviço desativado ou fora do catálogo, sem escrever nada', async () => {
-    const base = { data: '2030-05-10', hora: '09:00', veiculo: { modelo: 'Gol', placa: 'ABC1D23' } };
     await expect(app.criarAgendamento({ ...base, servicos: ['eco02'] })).rejects.toThrow(/indispon/i);
     await expect(app.criarAgendamento({ ...base, servicos: ['eco03'] })).rejects.toThrow(/indispon/i);
-    expect(m.setDoc).not.toHaveBeenCalled();
+    expect(m.lote.commit).not.toHaveBeenCalled();
   });
 
   it('recusa quem não é cliente de um condomínio', async () => {
     app.iniciar({ uid: 'u2', nome: 'Gui', role: 'gerente', condominioId: 'c1' });
-    await expect(
-      app.criarAgendamento({ servicos: ['eco01'], data: '2030-05-10', hora: '09:00', veiculo: { modelo: '', placa: 'ABC1D23' } })
-    ).rejects.toThrow(/condom/i);
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toThrow(/condom/i);
+  });
+});
+
+describe('horários cheios', () => {
+  it('esconde o horário quando todas as vagas (capacidade) já existem', () => {
+    app.capacidade = 2;
+    app.vagasRegulares = [{ id: 'a', data: '2030-05-10', hora: '09:00', externo: false }];
+    expect(app.horarioCheio('2030-05-10', '09:00', false)).toBe(false);
+    app.vagasRegulares = [
+      { id: 'a', data: '2030-05-10', hora: '09:00', externo: false },
+      { id: 'b', data: '2030-05-10', hora: '09:00', externo: false }
+    ];
+    expect(app.horarioCheio('2030-05-10', '09:00', false)).toBe(true);
+    expect(app.horarioCheio('2030-05-10', '09:30', false)).toBe(false);
+    expect(app.horarioCheio('2030-05-11', '09:00', false)).toBe(false);
+  });
+
+  it('insulfilm usa as vagas e a capacidade externas, independentes do condomínio', () => {
+    app.capacidade = 5;
+    app.capacidadeExterna = 1;
+    app.vagasExternas = [{ id: 'e', data: '2030-05-10', hora: '14:00', externo: true }];
+    expect(app.horarioCheio('2030-05-10', '14:00', true)).toBe(true);
+    expect(app.horarioCheio('2030-05-10', '14:00', false)).toBe(false);
   });
 });
 
@@ -133,10 +196,12 @@ describe('avaliação e cancelamento', () => {
     expect(Object.keys(up.dados)).toEqual(['avaliacao', 'atualizadoEm']);
   });
 
-  it('cancelar só muda o status', async () => {
+  it('cancelar muda só o status e apaga a vaga no mesmo batch', async () => {
+    app.agendamentos = [{ id: 'ag1', vagaId: 'c1_2030-05-10_09:00_1' } as any];
     await app.cancelar('ag1');
-    const up = m.escritas.find((e) => e.tipo === 'update')!;
-    expect(up.dados).toEqual({ status: 'cancelado', atualizadoEm: 'SERVER_TS' });
+    expect(m.lote.update.mock.calls[0][1]).toEqual({ status: 'cancelado', atualizadoEm: 'SERVER_TS' });
+    expect((m.lote.delete.mock.calls[0] as any[])[0].caminho).toBe('ocupacao/c1_2030-05-10_09:00_1');
+    expect(m.lote.commit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -183,10 +248,26 @@ describe('escutas por papel', () => {
     expect(desliga).toHaveBeenCalled();
   });
 
-  it('insulfilm não escuta agendamentos (as regras negam)', () => {
+  it('cliente escuta: agendamentos, condomínio, vagas do condomínio, vagas externas, config, chat e mensagens', () => {
+    app.parar();
+    m.onSnapshot.mockClear();
+    app.iniciar(cliente);
+    expect(m.onSnapshot).toHaveBeenCalledTimes(7); // + as mensagens da conversa
+  });
+
+  it('papel antigo "insulfilm" não escuta nada (a conta precisa ser migrada)', () => {
     app.parar();
     m.onSnapshot.mockClear();
     app.iniciar({ uid: 'i1', nome: 'Ivo', role: 'insulfilm', condominioId: null });
     expect(m.onSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('externos só podem ser atribuídos a funcionário com especialidade insulfilm', () => {
+    app.funcionarios = [
+      { uid: 'f1', nome: 'Fê', especialidade: null },
+      { uid: 'f2', nome: 'Ivo', especialidade: 'insulfilm' }
+    ];
+    expect(app.funcionariosPara({ externo: true } as any).map((f) => f.uid)).toEqual(['f2']);
+    expect(app.funcionariosPara({ externo: false } as any).map((f) => f.uid)).toEqual(['f1', 'f2']);
   });
 });

@@ -42,6 +42,23 @@
       ]
     },
     {
+      "collectionGroup": "ocupacao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "condominioId", "order": "ASCENDING" },
+        { "fieldPath": "externo", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ocupacao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "externo", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "chats",
       "queryScope": "COLLECTION",
       "fields": [

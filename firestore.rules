@@ -81,9 +81,103 @@ service cloud.firestore {
     }
 
     // ---------- Condomínios ----------
+    // capacidade = quantos agendamentos regulares cabem no mesmo horário (padrão 1)
     match /condominios/{condominioId} {
       allow read: if logado();
-      allow write: if souAdmin();
+      allow create, update: if souAdmin()
+        && (!('capacidade' in request.resource.data)
+          || (request.resource.data.capacidade is int
+            && request.resource.data.capacidade >= 1
+            && request.resource.data.capacidade <= 20));
+      allow delete: if souAdmin();
+    }
+
+    // ---------- Configurações ----------
+    // config/insulfilm.capacidade = quantos agendamentos externos (insulfilm) cabem no mesmo horário
+    match /config/{docId} {
+      allow read: if logado();
+      allow write: if souAdmin()
+        && docId == 'insulfilm'
+        && request.resource.data.keys().hasOnly(['capacidade'])
+        && request.resource.data.capacidade is int
+        && request.resource.data.capacidade >= 1
+        && request.resource.data.capacidade <= 20;
+    }
+
+    // ---------- Ocupação de horários ----------
+    // Uma vaga = um documento. O id traz o horário e o número da vaga (1..capacidade):
+    //   {condominioId}_{AAAA-MM-DD}_{HH:MM}_{n}   agendamentos regulares
+    //   ext_{AAAA-MM-DD}_{HH:MM}_{n}              agendamentos externos (insulfilm)
+    // Criar uma vaga que já existe é "update", e update é negado: dois clientes nunca pegam a mesma.
+    // A vaga e o agendamento nascem no mesmo batch (getAfter confere um contra o outro).
+    // Sem nome nem dado pessoal no documento.
+    match /ocupacao/{vagaId} {
+      function numeroDaVaga() {
+        return vagaId.split('_')[vagaId.split('_').size() - 1];
+      }
+
+      function capacidadeDaVaga() {
+        return request.resource.data.externo == true
+          ? (exists(/databases/$(database)/documents/config/insulfilm)
+            ? get(/databases/$(database)/documents/config/insulfilm).data.get('capacidade', 1)
+            : 1)
+          : get(/databases/$(database)/documents/condominios/$(request.resource.data.condominioId)).data.get('capacidade', 1);
+      }
+
+      function idEsperado() {
+        return request.resource.data.externo == true
+          ? 'ext_' + request.resource.data.data + '_' + request.resource.data.hora + '_' + numeroDaVaga()
+          : request.resource.data.condominioId + '_' + request.resource.data.data + '_' + request.resource.data.hora + '_' + numeroDaVaga();
+      }
+
+      // Externas: qualquer logado lê (a agenda do insulfilm é única). Regulares: só o próprio condomínio.
+      allow read: if logado() && (
+        resource.data.externo == true
+        || souAdmin()
+        || (tenhoPerfil() && meuPerfil().condominioId != null && meuPerfil().condominioId == resource.data.condominioId)
+      );
+
+      // O agendamento criado no mesmo batch tem de ser deste cliente, deste horário e desta vaga
+      function vagaCoerente(a) {
+        return a.vagaId == vagaId
+          && a.clienteId == request.auth.uid
+          && a.condominioId == request.resource.data.condominioId
+          && a.data == request.resource.data.data
+          && a.hora == request.resource.data.hora
+          && a.externo == request.resource.data.externo
+          && a.status == 'agendado';
+      }
+
+      allow create: if tenhoPerfil()
+        && meuPerfil().role == 'cliente'
+        && meuPerfil().condominioId != null
+        && request.resource.data.keys().hasOnly(['condominioId', 'data', 'hora', 'externo', 'agendamentoId'])
+        && request.resource.data.keys().hasAll(['condominioId', 'data', 'hora', 'externo', 'agendamentoId'])
+        && request.resource.data.externo is bool
+        && request.resource.data.condominioId == meuPerfil().condominioId
+        && request.resource.data.data is string && request.resource.data.data.size() == 10
+        && request.resource.data.hora is string && request.resource.data.hora.size() == 5
+        && request.resource.data.agendamentoId is string
+        && numeroDaVaga().matches('[0-9]{1,2}')
+        && int(numeroDaVaga()) >= 1
+        && int(numeroDaVaga()) <= capacidadeDaVaga()
+        && vagaId == idEsperado()
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamentoId))
+        && vagaCoerente(getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamentoId)).data);
+
+      allow update: if false;
+
+      // Libera a vaga no mesmo batch que cancela o agendamento: só dono, gerente do condomínio ou admin
+      allow delete: if logado() && (
+        souAdmin()
+        || (
+          getAfter(/databases/$(database)/documents/agendamentos/$(resource.data.agendamentoId)).data.status == 'cancelado'
+          && (
+            get(/databases/$(database)/documents/agendamentos/$(resource.data.agendamentoId)).data.clienteId == request.auth.uid
+            || souGerenteDoCondominio(resource.data.condominioId)
+          )
+        )
+      );
     }
 
     // ---------- Catálogo de serviços ----------
@@ -95,7 +189,7 @@ service cloud.firestore {
 
     // ---------- Agendamentos ----------
     // Leitura: cliente dono, funcionário atribuído, gerente do condomínio, admin.
-    // Papel "insulfilm": negado (a agenda dele não foi migrada).
+    // Insulfilm é um funcionário com especialidade 'insulfilm' (campo gravado só pelo admin/API).
     match /agendamentos/{agendamentoId} {
       allow read: if logado() && (
         resource.data.clienteId == request.auth.uid
@@ -105,25 +199,29 @@ service cloud.firestore {
       );
 
       // Cada item vem do catálogo: nome e preço têm de ser iguais aos de /servicos.
-      // Custo em leituras: 1 (perfil) + 1 por item (máx. 5) = 6, abaixo do limite de 10 por requisição.
-      function itemOk(i) {
+      // Custo em leituras no create: 1 (perfil) + 1 por item (máx. 5) + 1 (existsAfter/getAfter da vaga) = 7,
+      // abaixo do limite de 10 por operação. A vaga soma mais 3 (perfil, capacidade, agendamento): ~10 de 20 no batch.
+      // "ext" (externo) tem de bater com a categoria do catálogo, nunca com o que o cliente quer:
+      // externo == true só com itens insulfilm; false só com itens que não são. Mistura é negada.
+      function itemOk(i, ext) {
+        let s = get(/databases/$(database)/documents/servicos/$(i.servicoId)).data;
         return i.keys().hasOnly(['servicoId', 'nome', 'precoCentavos'])
           && i.keys().hasAll(['servicoId', 'nome', 'precoCentavos'])
           && i.servicoId is string
-          && exists(/databases/$(database)/documents/servicos/$(i.servicoId))
-          && get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.ativo == true
+          && s.ativo == true
           && i.precoCentavos is int
-          && i.precoCentavos == get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.precoCentavos
-          && i.nome == get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.nome;
+          && i.precoCentavos == s.precoCentavos
+          && i.nome == s.nome
+          && (s.get('categoria', '') == 'insulfilm') == ext;
       }
 
-      function itensOk(l) {
+      function itensOk(l, ext) {
         return l is list && l.size() >= 1 && l.size() <= 5
-          && itemOk(l[0])
-          && (l.size() < 2 || itemOk(l[1]))
-          && (l.size() < 3 || itemOk(l[2]))
-          && (l.size() < 4 || itemOk(l[3]))
-          && (l.size() < 5 || itemOk(l[4]));
+          && itemOk(l[0], ext)
+          && (l.size() < 2 || itemOk(l[1], ext))
+          && (l.size() < 3 || itemOk(l[2], ext))
+          && (l.size() < 4 || itemOk(l[3], ext))
+          && (l.size() < 5 || itemOk(l[4], ext));
       }
 
       // Rules não têm laço: a soma é escrita por tamanho da lista (máx. 5)
@@ -140,11 +238,11 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'clienteId', 'clienteNome', 'condominioId', 'itens', 'total', 'data', 'hora', 'inicio',
           'status', 'funcionarioId', 'funcionarioNome', 'veiculo', 'observacoes', 'checklist',
-          'avaliacao', 'criadoEm', 'atualizadoEm'
+          'avaliacao', 'criadoEm', 'atualizadoEm', 'externo', 'vagaId'
         ])
         && request.resource.data.keys().hasAll([
           'clienteId', 'clienteNome', 'condominioId', 'itens', 'total', 'data', 'hora', 'inicio',
-          'status', 'veiculo', 'criadoEm'
+          'status', 'veiculo', 'criadoEm', 'externo', 'vagaId'
         ])
         && request.resource.data.clienteId == request.auth.uid
         && meuPerfil().condominioId != null
@@ -156,7 +254,11 @@ service cloud.firestore {
         && request.resource.data.get('checklist', {'fotos': {}}) == {'fotos': {}}
         && request.resource.data.clienteNome is string
         && request.resource.data.clienteNome.size() <= 100
-        && itensOk(request.resource.data.itens)
+        && itensOk(request.resource.data.itens, request.resource.data.externo)
+        && request.resource.data.externo is bool
+        && request.resource.data.vagaId is string
+        && existsAfter(/databases/$(database)/documents/ocupacao/$(request.resource.data.vagaId))
+        && getAfter(/databases/$(database)/documents/ocupacao/$(request.resource.data.vagaId)).data.agendamentoId == agendamentoId
         && request.resource.data.total is int
         && request.resource.data.total == somaItens(request.resource.data.itens)
         && request.resource.data.data is string && request.resource.data.data.size() == 10
@@ -236,6 +338,8 @@ service cloud.firestore {
           || (request.resource.data.funcionarioId is string
             && exists(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId))
             && get(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId)).data.role == 'funcionario'
+            && (resource.data.get('externo', false) != true
+              || get(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId)).data.get('especialidade', null) == 'insulfilm')
             && request.resource.data.funcionarioNome == get(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId)).data.nome);
       }
 

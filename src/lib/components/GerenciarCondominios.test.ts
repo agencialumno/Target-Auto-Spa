@@ -7,7 +7,12 @@ const m = vi.hoisted(() => ({
   listarCondominios: vi.fn(),
   criarCondominio: vi.fn(),
   renomearCondominio: vi.fn(),
-  removerCondominio: vi.fn()
+  removerCondominio: vi.fn(),
+  definirCapacidade: vi.fn(),
+  lerCapacidadeInsulfilm: vi.fn(),
+  salvarCapacidadeInsulfilm: vi.fn(),
+  CAPACIDADE_MAX: 20,
+  capacidadeValida: (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 20
 }));
 
 vi.mock('$lib/condominios-admin', () => m);
@@ -20,9 +25,10 @@ const torre = {
   nomeNormalizado: 'torre 10',
   moradores: 2,
   gerentes: [{ uid: 'g1', nome: 'Gui' }],
-  agendamentos: 1
+  agendamentos: 1,
+  capacidade: 1
 };
-const vazio = { id: 'vazio', nome: 'Sem Ninguém', nomeNormalizado: 'sem ninguem', moradores: 0, gerentes: [], agendamentos: 0 };
+const vazio = { id: 'vazio', nome: 'Sem Ninguém', nomeNormalizado: 'sem ninguem', moradores: 0, gerentes: [], agendamentos: 0, capacidade: 2 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -30,6 +36,9 @@ beforeEach(() => {
   m.criarCondominio.mockResolvedValue('novo');
   m.renomearCondominio.mockResolvedValue(undefined);
   m.removerCondominio.mockResolvedValue(undefined);
+  m.definirCapacidade.mockResolvedValue(undefined);
+  m.lerCapacidadeInsulfilm.mockResolvedValue(1);
+  m.salvarCapacidadeInsulfilm.mockResolvedValue(undefined);
 });
 
 async function abrir() {
@@ -116,6 +125,39 @@ describe('criar', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(m.criarCondominio).not.toHaveBeenCalled();
+    expect(m.definirCapacidade).not.toHaveBeenCalled(); // capacidade não mudou
+  });
+
+  it('edita a capacidade (vagas por horário) sem renomear', async () => {
+    await abrir();
+    await fireEvent.click(screen.getByRole('button', { name: 'Editar Torre 10' }));
+    const caixa = screen.getByRole('dialog', { name: 'Editar condomínio' });
+    const cap = within(caixa).getByLabelText(/Vagas por horário/) as HTMLInputElement;
+    expect(cap.value).toBe('1');
+    await fireEvent.input(cap, { target: { value: '3' } });
+    await fireEvent.click(within(caixa).getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(m.definirCapacidade).toHaveBeenCalledWith('torre-10', 3));
+    expect(m.renomearCondominio).not.toHaveBeenCalled();
+  });
+
+  it('capacidade inválida desabilita o Salvar', async () => {
+    await abrir();
+    await fireEvent.click(screen.getByRole('button', { name: 'Editar Torre 10' }));
+    const caixa = screen.getByRole('dialog', { name: 'Editar condomínio' });
+    await fireEvent.input(within(caixa).getByLabelText(/Vagas por horário/), { target: { value: '0' } });
+    expect(within(caixa).getByRole('button', { name: 'Salvar' })).toBeDisabled();
+  });
+});
+
+describe('capacidade do insulfilm', () => {
+  it('mostra a capacidade atual e salva o novo valor', async () => {
+    m.lerCapacidadeInsulfilm.mockResolvedValue(2);
+    await abrir();
+    const campo = (await screen.findByLabelText('Capacidade do insulfilm')) as HTMLInputElement;
+    await waitFor(() => expect(campo.value).toBe('2'));
+    await fireEvent.input(campo, { target: { value: '4' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    await waitFor(() => expect(m.salvarCapacidadeInsulfilm).toHaveBeenCalledWith(4));
   });
 });
 

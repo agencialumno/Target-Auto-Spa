@@ -21,7 +21,7 @@ vi.mock('firebase/firestore', () => {
         .filter(([k]) => k.startsWith(col.nome + '/'))
         .map(([k, v]) => ({ id: k.split('/')[1], data: () => v }))
     }),
-    getDoc: async (ref: { caminho: string }) => ({ exists: () => m.docs.has(ref.caminho) }),
+    getDoc: async (ref: { caminho: string }) => ({ exists: () => m.docs.has(ref.caminho), data: () => m.docs.get(ref.caminho) }),
     getCountFromServer: async (q: { nome: string; filtros: { campo: string; valor: unknown }[] }) => {
       const n = [...m.docs.entries()].filter(
         ([k, v]) =>
@@ -35,7 +35,15 @@ vi.mock('firebase/firestore', () => {
   };
 });
 
-import { criarCondominio, listarCondominios, removerCondominio, renomearCondominio } from './condominios-admin';
+import {
+  criarCondominio,
+  definirCapacidade,
+  lerCapacidadeInsulfilm,
+  listarCondominios,
+  removerCondominio,
+  renomearCondominio,
+  salvarCapacidadeInsulfilm
+} from './condominios-admin';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -147,5 +155,37 @@ describe('removerCondominio', () => {
   it('remove quando está vazio', async () => {
     await removerCondominio('vazio');
     expect(m.deleteDoc).toHaveBeenCalledWith({ tipo: 'doc', caminho: 'condominios/vazio' });
+  });
+});
+
+describe('capacidade (vagas por horário)', () => {
+  it('a lista traz a capacidade; sem o campo (ou inválida) vale 1', async () => {
+    m.docs.set('condominios/torre-10', { nome: 'Torre 10', capacidade: 3 });
+    m.docs.set('condominios/vazio', { nome: 'Vazio' });
+    m.docs.set('condominios/ruim', { nome: 'Ruim', capacidade: 0 });
+    const lista = await listarCondominios();
+    expect(lista.find((c) => c.id === 'torre-10')!.capacidade).toBe(3);
+    expect(lista.find((c) => c.id === 'vazio')!.capacidade).toBe(1);
+    expect(lista.find((c) => c.id === 'ruim')!.capacidade).toBe(1);
+  });
+
+  it('grava só o campo capacidade', async () => {
+    await definirCapacidade('torre-10', 2);
+    expect(m.updateDoc).toHaveBeenCalledWith({ tipo: 'doc', caminho: 'condominios/torre-10' }, { capacidade: 2 });
+  });
+
+  it.each([0, -1, 21, 1.5, NaN])('recusa capacidade inválida (%s) sem gravar', async (n) => {
+    await expect(definirCapacidade('torre-10', n)).rejects.toThrow(/inteiro de 1 a 20/);
+    await expect(salvarCapacidadeInsulfilm(n)).rejects.toThrow(/inteiro de 1 a 20/);
+    expect(m.updateDoc).not.toHaveBeenCalled();
+    expect(m.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('insulfilm: lê config/insulfilm (padrão 1) e salva', async () => {
+    expect(await lerCapacidadeInsulfilm()).toBe(1);
+    m.docs.set('config/insulfilm', { capacidade: 4 });
+    expect(await lerCapacidadeInsulfilm()).toBe(4);
+    await salvarCapacidadeInsulfilm(2);
+    expect(m.setDoc).toHaveBeenCalledWith({ tipo: 'doc', caminho: 'config/insulfilm' }, { capacidade: 2 });
   });
 });

@@ -23,6 +23,7 @@ export type Condominio = {
   moradores: number;
   gerentes: { uid: string; nome: string }[];
   agendamentos: number;
+  capacidade: number; // vagas simultâneas por horário (padrão 1)
 };
 
 const MENSAGENS_NOME = {
@@ -47,7 +48,7 @@ export async function listarCondominios(): Promise<Condominio[]> {
 
   const lista = await Promise.all(
     condos.docs.map(async (d) => {
-      const dados = d.data() as { nome?: string; nomeNormalizado?: string };
+      const dados = d.data() as { nome?: string; nomeNormalizado?: string; capacidade?: number };
       const nome = dados.nome ?? d.id;
       return {
         id: d.id,
@@ -57,7 +58,8 @@ export async function listarCondominios(): Promise<Condominio[]> {
         gerentes: gente
           .filter((u) => u.role === 'gerente' && u.condominioId === d.id)
           .map((u) => ({ uid: u.uid, nome: u.nome || u.email })),
-        agendamentos: await contar('agendamentos', d.id)
+        agendamentos: await contar('agendamentos', d.id),
+        capacidade: Number.isInteger(dados.capacidade) && (dados.capacidade as number) >= 1 ? (dados.capacidade as number) : 1
       } satisfies Condominio;
     })
   );
@@ -96,6 +98,29 @@ export async function renomearCondominio(id: string, nome: string): Promise<void
     throw new Error('Já existe outro condomínio com esse nome.');
   }
   await updateDoc(doc(db, 'condominios', id), { nome: limpar(nome), nomeNormalizado: normalizarNome(nome) });
+}
+
+export const CAPACIDADE_MAX = 20;
+
+export const capacidadeValida = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= CAPACIDADE_MAX;
+
+// Quantos agendamentos regulares cabem no mesmo horário deste condomínio (as regras também conferem 1..20)
+export async function definirCapacidade(id: string, capacidade: number): Promise<void> {
+  if (!capacidadeValida(capacidade)) throw new Error(`A capacidade deve ser um número inteiro de 1 a ${CAPACIDADE_MAX}.`);
+  await updateDoc(doc(db, 'condominios', id), { capacidade });
+}
+
+// Capacidade do insulfilm (agenda externa única) em config/insulfilm
+export async function lerCapacidadeInsulfilm(): Promise<number> {
+  const d = await getDoc(doc(db, 'config', 'insulfilm'));
+  const c = d.exists() ? d.data().capacidade : 1;
+  return capacidadeValida(c) ? c : 1;
+}
+
+export async function salvarCapacidadeInsulfilm(capacidade: number): Promise<void> {
+  if (!capacidadeValida(capacidade)) throw new Error(`A capacidade deve ser um número inteiro de 1 a ${CAPACIDADE_MAX}.`);
+  await setDoc(doc(db, 'config', 'insulfilm'), { capacidade });
 }
 
 export async function removerCondominio(id: string): Promise<void> {

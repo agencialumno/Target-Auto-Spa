@@ -44,6 +44,8 @@ export type Agendamento = {
   observacoes: string;
   checklist: { fotos: Record<string, FotoChecklist> };
   avaliacao: Avaliacao | null;
+  externo: boolean; // todos os itens são insulfilm (profissional externo); vem do catálogo
+  vagaId: string; // vaga em /ocupacao que este agendamento ocupa
   criadoEm: Date | null;
 };
 
@@ -97,6 +99,24 @@ export function inicioDe(data: string, hora: string): Date {
   return new Date(a, m - 1, d, hh, mm, 0, 0);
 }
 
+// Vaga de horário: {condominioId}_{AAAA-MM-DD}_{HH:MM}_{n} (regular) ou ext_{AAAA-MM-DD}_{HH:MM}_{n} (externo)
+export const idVaga = (
+  v: { externo: boolean; condominioId: string; data: string; hora: string },
+  n: number
+) => (v.externo ? `ext_${v.data}_${v.hora}_${n}` : `${v.condominioId}_${v.data}_${v.hora}_${n}`);
+
+// Documento da vaga (sem nome nem dado pessoal)
+export const montarVaga = (
+  v: { externo: boolean; condominioId: string; data: string; hora: string },
+  agendamentoId: string
+) => ({
+  condominioId: v.condominioId,
+  data: v.data,
+  hora: v.hora,
+  externo: v.externo,
+  agendamentoId
+});
+
 export type NovoAgendamento = {
   clienteId: string;
   clienteNome: string;
@@ -106,6 +126,8 @@ export type NovoAgendamento = {
   hora: string;
   veiculo: Veiculo;
   observacoes?: string;
+  externo: boolean;
+  vagaId: string;
 };
 
 // Documento exatamente no formato que o firestore.rules aceita no create.
@@ -130,6 +152,8 @@ export function montarAgendamento(n: NovoAgendamento, carimbo: unknown): Documen
     observacoes: (n.observacoes ?? '').slice(0, 500),
     checklist: { fotos: {} },
     avaliacao: null,
+    externo: n.externo,
+    vagaId: n.vagaId,
     criadoEm: carimbo
   };
 }
@@ -162,6 +186,8 @@ export function lerAgendamento(id: string, d: DocumentData): Agendamento {
     observacoes: d.observacoes ?? '',
     checklist: { fotos },
     avaliacao: av ? { nota: av.nota, nps: av.nps, comentario: av.comentario ?? '', em: paraData(av.em) } : null,
+    externo: d.externo === true,
+    vagaId: d.vagaId ?? '',
     criadoEm: paraData(d.criadoEm)
   };
 }

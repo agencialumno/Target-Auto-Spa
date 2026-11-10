@@ -1,7 +1,7 @@
-import { BUFFER_MIN } from './mock';
-
 export const ABERTURA = 8 * 60; // 08:00
 export const FECHAMENTO = 18 * 60; // 18:00
+// Grade fixa de horários de início: todos disputam as mesmas vagas (um documento por horário)
+export const GRADE_MIN = 30;
 export const ANTECEDENCIA_INSULFILM_H = 36;
 const HORARIOS_INSULFILM = ['09:00', '11:00', '14:00', '16:00'];
 
@@ -22,20 +22,19 @@ export function proximosDias(n: number, inicio = new Date()): Date[] {
 
 /**
  * Horários livres de lavagem/estética.
- * Cada atendimento ocupa: duração total + intervalo de 15 min.
- * Lavagem simples: 30 + 15 = 45 min.
+ * Horários de início em grade de 30 min, desde que o serviço termine até o fechamento.
+ * A capacidade de cada horário (vagas simultâneas) é do condomínio e fica em /ocupacao.
  */
 export function horariosLavagem(
   data: Date,
   duracaoTotal: number,
   agora = new Date()
 ): string[] {
-  const slot = duracaoTotal + BUFFER_MIN;
   const ehHoje = chaveData(agora) === chaveData(data);
   const agoraMin = agora.getHours() * 60 + agora.getMinutes();
   const livres: string[] = [];
 
-  for (let t = ABERTURA; t + duracaoTotal <= FECHAMENTO; t += slot) {
+  for (let t = ABERTURA; t + duracaoTotal <= FECHAMENTO; t += GRADE_MIN) {
     if (ehHoje && t <= agoraMin) continue;
     livres.push(hhmm(t));
   }

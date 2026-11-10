@@ -25,10 +25,12 @@
 
   const diaAtual = $derived(dias.find((d) => chaveData(d) === dataSel) ?? dias[0]);
 
+  // Esconde os horários cheios (todas as vagas do horário já foram pegas)
   const horarios = $derived(
-    reserva.avulso
+    (reserva.avulso
       ? horariosInsulfilm(diaAtual, agora)
       : horariosLavagem(diaAtual, reserva.duracaoTotal, agora)
+    ).filter((h) => !app.horarioCheio(dataSel, h, reserva.avulso))
   );
 
   const rotuloDia = (d: Date) => ({
@@ -61,6 +63,8 @@
         codigo === 'permission-denied'
           ? 'O preço ou a disponibilidade mudou. Volte aos serviços e tente de novo.'
           : ((e as Error)?.message ?? 'Não foi possível agendar.');
+      // Alguém pegou o horário agora há pouco: escolha outro
+      if ((e as Error)?.message?.startsWith('Horário indisponível')) reserva.hora = null;
     } finally {
       enviando = false;
     }
@@ -142,8 +146,7 @@
           Agenda própria do insulfilm (profissional externo). Antecedência mínima de
           {ANTECEDENCIA_INSULFILM_H} horas.
         {:else}
-          Cada atendimento reserva {reserva.slotTotal} min ({reserva.duracaoTotal} de serviço + {BUFFER_MIN}
-          de preparo).
+          Duração estimada: {reserva.duracaoTotal} min. Mais {BUFFER_MIN} min de preparo.
         {/if}
       </p>
 

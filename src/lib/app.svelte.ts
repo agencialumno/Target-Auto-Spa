@@ -30,7 +30,9 @@ import {
   chaveFoto,
   faltamFotos,
   fotosFeitas,
+  idVaga,
   lerAgendamento,
+  montarVaga,
   montarAgendamento,
   nomesItens,
   proximoStatus,
@@ -66,7 +68,10 @@ export type Conversa = {
   naoLidasCliente: number;
 };
 
-export type Funcionario = { uid: string; nome: string };
+export type Funcionario = { uid: string; nome: string; especialidade: string | null };
+
+// Vaga de horário ocupada (sem dado pessoal): o app só conta quantas há por horário
+export type Vaga = { id: string; data: string; hora: string; externo: boolean };
 
 export type Notificacao = {
   id: string;
@@ -86,7 +91,10 @@ const chaveNotificacoes = (uid: string) => `target-auto-spa-notificacoes-v1-${ui
 const horaAgora = () =>
   new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : 0);
+const chaveHoje = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 class App {
   agendamentos = $state<Agendamento[]>([]);
@@ -97,6 +105,10 @@ class App {
   funcionarios = $state<Funcionario[]>([]);
   carregado = $state(false);
   condominioNome = $state('');
+  capacidade = $state(1); // vagas simultâneas por horário no condomínio
+  capacidadeExterna = $state(1); // idem para o insulfilm (config/insulfilm)
+  vagasRegulares = $state<Vaga[]>([]);
+  vagasExternas = $state<Vaga[]>([]);
   erro = $state('');
 
   private sessao: Sessao | null = null;
@@ -113,14 +125,21 @@ class App {
     this.parar();
     this.sessao = sessao;
     this.carregarNotificacoes();
-    if (sessao.condominioId) {
-      getDoc(doc(db, 'condominios', sessao.condominioId))
-        .then((d) => {
-          if (this.sessao?.uid === sessao.uid && d?.exists()) this.condominioNome = String(d.data().nome ?? '');
-        })
-        .catch(() => {});
-    }
     const ouvir = (u: Unsubscribe) => this.paradas.push(u);
+    if (sessao.condominioId) {
+      ouvir(
+        onSnapshot(
+          doc(db, 'condominios', sessao.condominioId),
+          (d) => {
+            if (!d?.exists()) return;
+            this.condominioNome = String(d.data().nome ?? '');
+            const c = d.data().capacidade;
+            this.capacidade = Number.isInteger(c) && c >= 1 ? c : 1;
+          },
+          () => {}
+        )
+      );
+    }
     const falha = (e: unknown) => {
       this.erro = `Não foi possível carregar os dados (${(e as { code?: string })?.code ?? 'erro'}).`;
     };
@@ -155,6 +174,37 @@ class App {
       this.carregado = true;
     }
 
+    if (sessao.role === 'cliente' && sessao.condominioId) {
+      // Horários cheios: vagas do condomínio e vagas do insulfilm, a partir de hoje
+      const hoje = chaveHoje();
+      const lerVagas = (snap: { docs: { id: string; data: () => any }[] }): Vaga[] =>
+        snap.docs.map((d) => ({ id: d.id, data: d.data().data, hora: d.data().hora, externo: d.data().externo === true }));
+      ouvir(
+        onSnapshot(
+          query(collection(db, 'ocupacao'), where('condominioId', '==', sessao.condominioId), where('externo', '==', false), where('data', '>=', hoje)),
+          (snap) => (this.vagasRegulares = lerVagas(snap)),
+          () => {}
+        )
+      );
+      ouvir(
+        onSnapshot(
+          query(collection(db, 'ocupacao'), where('externo', '==', true), where('data', '>=', hoje)),
+          (snap) => (this.vagasExternas = lerVagas(snap)),
+          () => {}
+        )
+      );
+      ouvir(
+        onSnapshot(
+          doc(db, 'config', 'insulfilm'),
+          (d) => {
+            const c = d?.exists() ? d.data().capacidade : 1;
+            this.capacidadeExterna = Number.isInteger(c) && c >= 1 ? c : 1;
+          },
+          () => {}
+        )
+      );
+    }
+
     if (sessao.role === 'cliente') {
       // Conversa do cliente: chatId = uid
       ouvir(
@@ -184,7 +234,7 @@ class App {
           query(collection(db, 'users'), where('role', '==', 'funcionario')),
           (snap) => {
             this.funcionarios = snap.docs
-              .map((d) => ({ uid: d.id, nome: String(d.data().nome ?? '') }))
+              .map((d) => ({ uid: d.id, nome: String(d.data().nome ?? ''), especialidade: (d.data().especialidade as string | undefined) ?? null }))
               .sort((a, b) => a.nome.localeCompare(b.nome));
           },
           () => {}
@@ -207,6 +257,10 @@ class App {
     this.funcionarios = [];
     this.carregado = false;
     this.condominioNome = '';
+    this.capacidade = 1;
+    this.capacidadeExterna = 1;
+    this.vagasRegulares = [];
+    this.vagasExternas = [];
     this.erro = '';
     this.conhecidos.clear();
     this.urls.clear();
@@ -368,29 +422,67 @@ class App {
       if (!sv?.publicado || sv.ativo === false) throw new Error('Serviço indisponível no momento.');
       return { servicoId: sv.id, nome: sv.nome, precoCentavos: sv.precoCentavos };
     });
-    const novo: NovoAgendamento = {
-      clienteId: s.uid,
-      clienteNome: s.nome || 'Cliente',
-      condominioId: s.condominioId,
-      itens,
-      data: dados.data,
-      hora: dados.hora,
-      veiculo: dados.veiculo,
-      observacoes: dados.observacoes
-    };
+    // Externo (insulfilm): vem da categoria do catálogo; as regras conferem. Misturar com outro serviço é negado.
+    const ehIns = (id: string) => getServico(id)?.categoria === 'insulfilm';
+    const externo = itens.every((i) => ehIns(i.servicoId));
+    if (!externo && itens.some((i) => ehIns(i.servicoId))) {
+      throw new Error('Insulfilm precisa ser agendado separado dos outros serviços.');
+    }
+    const alvo = { externo, condominioId: s.condominioId, data: dados.data, hora: dados.hora };
     const ref = doc(collection(db, 'agendamentos'));
-    await setDoc(ref, montarAgendamento(novo, serverTimestamp()));
-    this.notificar({
-      tipo: 'agendamento',
-      titulo: 'Agendamento confirmado',
-      texto: `${nomesItens(itens)} · ${dataCurta(dados.data)} às ${dados.hora}`,
-      agendamentoId: ref.id
-    });
-    return ref.id;
+    const capacidade = externo ? this.capacidadeExterna : this.capacidade;
+
+    // Tenta a vaga 1..capacidade. O agendamento e a vaga vão no mesmo batch: se outra pessoa pegou a
+    // vaga, o batch inteiro é recusado e passamos à próxima.
+    for (let n = 1; n <= capacidade; n++) {
+      const vagaId = idVaga(alvo, n);
+      const novo: NovoAgendamento = {
+        clienteId: s.uid,
+        clienteNome: s.nome || 'Cliente',
+        condominioId: s.condominioId,
+        itens,
+        data: dados.data,
+        hora: dados.hora,
+        veiculo: dados.veiculo,
+        observacoes: dados.observacoes,
+        externo,
+        vagaId
+      };
+      const lote = writeBatch(db);
+      lote.set(ref, montarAgendamento(novo, serverTimestamp()));
+      lote.set(doc(db, 'ocupacao', vagaId), montarVaga(alvo, ref.id));
+      try {
+        await lote.commit();
+        this.notificar({
+          tipo: 'agendamento',
+          titulo: 'Agendamento confirmado',
+          texto: `${nomesItens(itens)} · ${dataCurta(dados.data)} às ${dados.hora}`,
+          agendamentoId: ref.id
+        });
+        return ref.id;
+      } catch (e) {
+        // Só segue para a próxima vaga se esta já existe; outro erro (preço mudou, sem rede) é repassado
+        const ocupada = await getDoc(doc(db, 'ocupacao', vagaId)).then((d) => !!d?.exists()).catch(() => false);
+        if (!ocupada) throw e;
+      }
+    }
+    throw new Error('Horário indisponível. Escolha outro horário.');
   }
 
+  // Horário cheio: todas as vagas do horário (1..capacidade) já existem
+  horarioCheio(data: string, hora: string, externo: boolean): boolean {
+    const vagas = externo ? this.vagasExternas : this.vagasRegulares;
+    const ocupadas = vagas.filter((v) => v.data === data && v.hora === hora).length;
+    return ocupadas >= (externo ? this.capacidadeExterna : this.capacidade);
+  }
+
+  // Cancela e libera a vaga no mesmo batch
   async cancelar(id: string) {
-    await updateDoc(doc(db, 'agendamentos', id), { status: 'cancelado', atualizadoEm: serverTimestamp() });
+    const ag = this.agendamentos.find((a) => a.id === id);
+    const lote = writeBatch(db);
+    lote.update(doc(db, 'agendamentos', id), { status: 'cancelado', atualizadoEm: serverTimestamp() });
+    if (ag?.vagaId) lote.delete(doc(db, 'ocupacao', ag.vagaId));
+    await lote.commit();
   }
 
   fotosFeitas(ag: Agendamento, fase: Fase) {
@@ -411,6 +503,11 @@ class App {
     } catch (e) {
       return `Não foi possível atualizar (${(e as { code?: string })?.code ?? 'erro'}).`;
     }
+  }
+
+  // Externos (insulfilm) só vão para quem tem a especialidade; as regras também conferem
+  funcionariosPara(ag: Agendamento): Funcionario[] {
+    return ag.externo ? this.funcionarios.filter((f) => f.especialidade === 'insulfilm') : this.funcionarios;
   }
 
   async atribuirFuncionario(id: string, funcionario: Funcionario | null) {
