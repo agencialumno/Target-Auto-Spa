@@ -3,6 +3,7 @@
   import Icone from '$lib/components/Icone.svelte';
   import { reserva } from '$lib/reserva.svelte';
   import { app } from '$lib/app.svelte';
+  import PainelPagamento from '$lib/components/PainelPagamento.svelte';
   import { dataExtensa } from '$lib/formato';
   import { brl, BUFFER_MIN } from '$lib/mock';
   import {
@@ -57,6 +58,8 @@
         hora: reserva.hora,
         veiculo: { modelo: modelo.trim(), placa: placa.trim().toUpperCase() }
       });
+      // Começa a contar os 15 minutos para pagar (não abre nada; o botão "Pagar" abre)
+      void app.prepararPagamento(novoId);
     } catch (e) {
       const codigo = (e as { code?: string })?.code;
       erro =
@@ -118,6 +121,7 @@
         <Icone nome="calendar" tamanho={18} />
         {dataExtensa(dataSel)} às {reserva.hora}
       </p>
+      <PainelPagamento ag={app.agendamentos.find((a) => a.id === novoId)} />
       <div class="botoes">
         <button class="btn-primario" onclick={() => irPara(`/cliente/agendamentos/${novoId}`)}>
           Ver meu agendamento

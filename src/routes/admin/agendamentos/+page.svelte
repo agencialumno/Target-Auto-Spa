@@ -23,6 +23,11 @@
             {#if a.externo}
               <span class="selo-status ext">Insulfilm</span>
             {/if}
+            {#if a.pagamento?.status === 'pago'}
+              <span class="selo-status finalizado">Pago</span>
+            {:else if a.pagamento?.status === 'pago_apos_cancelamento' || a.pagamento?.status === 'divergente'}
+              <span class="selo-status revisar">Revisar pagamento</span>
+            {/if}
           </span>
         </span>
         <Icone nome="chevron" tamanho={20} />
@@ -86,6 +91,11 @@
   .selo-status.finalizado {
     background: var(--ok-fundo);
     color: var(--ok-texto);
+  }
+
+  .selo-status.revisar {
+    background: #fdecea;
+    color: #b3261e;
   }
 
   .selo-status.ext {

@@ -11,6 +11,7 @@ import {
   montarAgendamento,
   montarVaga,
   proximoStatus,
+  situacaoPagamento,
   slugAngulo,
   totalCentavos,
   type Item,
@@ -203,5 +204,38 @@ describe('lerAgendamento', () => {
   it('descarta foto sem caminho', () => {
     const ag = lerAgendamento('x', { checklist: { fotos: { antes_frente: {} } } });
     expect(ag.checklist.fotos).toEqual({});
+  });
+});
+
+describe('pagamento', () => {
+  const base = { status: 'agendado' as const };
+  const agora = Date.parse('2030-01-01T12:00:00Z');
+  const pag = (status: any, venceEm: Date | null = null) => ({ status, venceEm, revisao: false });
+
+  it('lerAgendamento mapeia o pagamento do servidor (status, vencimento) e tolera a ausência', () => {
+    const venceEm = Timestamp.fromDate(new Date(agora + 900_000));
+    const ag = lerAgendamento('x', { pagamento: { status: 'pendente', checkoutId: 'chk', link: 'https://a.com', venceEm } });
+    expect(ag.pagamento?.status).toBe('pendente');
+    expect(ag.pagamento?.venceEm?.getTime()).toBe(agora + 900_000);
+    expect(lerAgendamento('y', {}).pagamento).toBeNull();
+  });
+
+  it('o app não carrega checkoutId nem link do documento', () => {
+    const ag = lerAgendamento('x', { pagamento: { status: 'pendente', checkoutId: 'chk', link: 'https://a.com' } });
+    expect(Object.keys(ag.pagamento!).sort()).toEqual(['revisao', 'status', 'venceEm']);
+  });
+
+  it.each([
+    [{ ...base, pagamento: null }, 'sem'],
+    [{ status: 'cancelado' as const, pagamento: null }, 'nenhuma'],
+    [{ ...base, pagamento: pag('pendente', new Date(agora + 60_000)) }, 'pendente'],
+    [{ ...base, pagamento: pag('pendente', new Date(agora - 1)) }, 'vencido'],
+    [{ ...base, pagamento: pag('pago') }, 'pago'],
+    [{ ...base, pagamento: pag('pago_apos_cancelamento') }, 'revisao'],
+    [{ ...base, pagamento: pag('divergente') }, 'revisao'],
+    [{ status: 'cancelado' as const, pagamento: pag('expirado') }, 'expirado'],
+    [{ status: 'cancelado' as const, pagamento: pag('cancelado') }, 'cancelado']
+  ])('situacaoPagamento %#', (ag, esperado) => {
+    expect(situacaoPagamento(ag as any, agora)).toBe(esperado);
   });
 });

@@ -3,6 +3,7 @@
   import Icone from '$lib/components/Icone.svelte';
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import Checklist360 from '$lib/components/Checklist360.svelte';
+  import PainelPagamento from '$lib/components/PainelPagamento.svelte';
   import { app, ordemStatus, rotuloStatus } from '$lib/app.svelte';
   import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataExtensa } from '$lib/formato';
@@ -96,6 +97,8 @@
       {#if ag.funcionarioNome}
         <p class="nota-demo">Responsável: {ag.funcionarioNome}</p>
       {/if}
+
+      <PainelPagamento {ag} />
 
       <h2>Checklist do veículo (360º)</h2>
       <Checklist360 {ag} />

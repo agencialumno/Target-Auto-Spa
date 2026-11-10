@@ -356,8 +356,10 @@ service cloud.firestore {
           && carimboOk();
       }
 
+      // O campo "pagamento" (Asaas) só é escrito pelo servidor (Admin SDK ignora as regras): nenhum
+      // papel, nem o admin, o cria ou altera pelo cliente. Por isso não está em nenhuma lista abaixo.
       allow update: if logado() && (
-        souAdmin()
+        (souAdmin() && !('pagamento' in camposAlterados()))
         || (resource.data.clienteId == request.auth.uid && carimboOk() && (clienteCancela() || clienteAvalia()))
         || funcionarioAtualiza()
         || gerenteAtualiza()
@@ -439,6 +441,17 @@ service cloud.firestore {
 
         allow delete: if false;
       }
+    }
+
+    // ---------- Pagamento (só servidor) ----------
+    // Eventos do webhook do Asaas e o id do cliente no Asaas: nenhum cliente lê nem escreve, nem o admin.
+    // Só a API (Admin SDK) acessa.
+    match /eventosAsaas/{eventoId} {
+      allow read, write: if false;
+    }
+
+    match /clientesAsaas/{uid} {
+      allow read, write: if false;
     }
 
     // Tudo o que não foi liberado acima fica bloqueado

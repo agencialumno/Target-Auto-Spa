@@ -11,11 +11,15 @@ const m = vi.hoisted(() => {
     lote: { set: vi.fn(), update: vi.fn(), delete: vi.fn(), commit: vi.fn(async () => {}) },
     onSnapshot: vi.fn(() => () => {}),
     uploadBytes: vi.fn(async () => ({})),
-    getDownloadURL: vi.fn(async () => 'https://exemplo/foto.jpg')
+    getDownloadURL: vi.fn(async () => 'https://exemplo/foto.jpg'),
+    openUrl: vi.fn(async () => {}),
+    chamarApi: vi.fn()
   };
 });
 
 vi.mock('./firebase', () => ({ db: {}, auth: {}, storage: {} }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: m.openUrl }));
+vi.mock('./api', () => ({ chamarApi: m.chamarApi }));
 vi.mock('firebase/firestore', async () => {
   const real = await vi.importActual<typeof import('firebase/firestore')>('firebase/firestore');
   let n = 0;
@@ -269,5 +273,39 @@ describe('escutas por papel', () => {
     ];
     expect(app.funcionariosPara({ externo: true } as any).map((f) => f.uid)).toEqual(['f2']);
     expect(app.funcionariosPara({ externo: false } as any).map((f) => f.uid)).toEqual(['f1', 'f2']);
+  });
+});
+
+describe('pagamento (Asaas)', () => {
+  const link = 'https://sandbox.asaas.com/000/checkoutSession/show/chk-1';
+
+  it('pagar chama a API do servidor só com o id do agendamento e abre o link no navegador do sistema', async () => {
+    m.chamarApi.mockResolvedValue({ link, venceEm: '2030-01-01T12:15:00.000Z' });
+    await app.pagar('ag1');
+    expect(m.chamarApi).toHaveBeenCalledWith('criar', { agendamentoId: 'ag1' }, 'pagamento');
+    expect(m.openUrl).toHaveBeenCalledWith(link);
+  });
+
+  it('link que não é https nunca é aberto', async () => {
+    for (const ruim of ['http://asaas.com/x', 'javascript:alert(1)', 'tauri://localhost/x', '']) {
+      m.chamarApi.mockResolvedValue({ link: ruim, venceEm: '' });
+      await expect(app.pagar('ag1')).rejects.toThrow(/inválido/i);
+    }
+    expect(m.openUrl).not.toHaveBeenCalled();
+  });
+
+  it('erro do servidor aparece para a tela e nada é aberto', async () => {
+    m.chamarApi.mockRejectedValue(new Error('Este agendamento já foi pago.'));
+    await expect(app.pagar('ag1')).rejects.toThrow(/já foi pago/);
+    expect(m.openUrl).not.toHaveBeenCalled();
+  });
+
+  it('prepararPagamento inicia o prazo sem abrir nada e engole falhas', async () => {
+    m.chamarApi.mockResolvedValue({ link, venceEm: '' });
+    await app.prepararPagamento('ag1');
+    expect(m.chamarApi).toHaveBeenCalledTimes(1);
+    expect(m.openUrl).not.toHaveBeenCalled();
+    m.chamarApi.mockRejectedValue(new Error('sem rede'));
+    await expect(app.prepararPagamento('ag1')).resolves.toBeUndefined();
   });
 });

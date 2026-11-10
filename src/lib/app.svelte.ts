@@ -20,7 +20,9 @@ import {
   type Unsubscribe
 } from 'firebase/firestore';
 import { getDownloadURL, ref as refStorage, uploadBytes } from 'firebase/storage';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { db, storage } from './firebase';
+import { chamarApi } from './api';
 import { angulos360 } from './mock';
 import { getServico } from './catalogo.svelte';
 import { gastoJanela, nivelAtual, proximoNivel, type Compra } from './niveis';
@@ -474,6 +476,27 @@ class App {
     const vagas = externo ? this.vagasExternas : this.vagasRegulares;
     const ocupadas = vagas.filter((v) => v.data === data && v.hora === hora).length;
     return ocupadas >= (externo ? this.capacidadeExterna : this.capacidade);
+  }
+
+  // Cria (ou recupera) o Checkout do Asaas. Idempotente no servidor: devolve o mesmo link enquanto aberto.
+  async criarCheckout(id: string): Promise<{ link: string; venceEm: string }> {
+    return chamarApi('criar', { agendamentoId: id }, 'pagamento');
+  }
+
+  // Inicia o prazo de 15 min logo ao agendar, sem abrir nada; se falhar, o botão "Pagar" tenta de novo
+  async prepararPagamento(id: string) {
+    try {
+      await this.criarCheckout(id);
+    } catch {
+      // sem rede ou serviço fora: a tela de pagamento oferece "Pagar agora"
+    }
+  }
+
+  // Abre o pagamento no NAVEGADOR DO SISTEMA, nunca no WebView do app (cartão fora do nosso app)
+  async pagar(id: string) {
+    const { link } = await this.criarCheckout(id);
+    if (!/^https:\/\//.test(link)) throw new Error('Link de pagamento inválido.');
+    await openUrl(link);
   }
 
   // Cancela e libera a vaga no mesmo batch

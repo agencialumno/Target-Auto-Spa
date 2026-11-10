@@ -18,6 +18,52 @@ export const rotuloStatus: Record<Status, string> = {
 
 export const MAX_ITENS = 5;
 
+// Estados do pagamento (gravados SÓ pelo servidor: API da Vercel e webhook do Asaas)
+export type PagamentoStatus =
+  | 'pendente'
+  | 'pago'
+  | 'expirado'
+  | 'cancelado'
+  | 'divergente'
+  | 'pago_apos_cancelamento';
+
+export type Pagamento = { status: PagamentoStatus; venceEm: Date | null; revisao: boolean };
+
+// O que a tela mostra, já considerando o prazo (o webhook pode demorar alguns segundos a cancelar)
+export type SituacaoPagamento = 'sem' | 'pendente' | 'vencido' | 'pago' | 'expirado' | 'cancelado' | 'revisao' | 'nenhuma';
+
+export const rotuloPagamento: Record<SituacaoPagamento, string> = {
+  sem: 'Pagamento pendente',
+  pendente: 'Aguardando pagamento',
+  vencido: 'Prazo vencido',
+  pago: 'Pago',
+  expirado: 'Prazo expirado',
+  cancelado: 'Pagamento cancelado',
+  revisao: 'Pagamento em análise',
+  nenhuma: ''
+};
+
+export function situacaoPagamento(
+  ag: Pick<Agendamento, 'status' | 'pagamento'>,
+  agora: number = Date.now()
+): SituacaoPagamento {
+  const p = ag.pagamento;
+  if (!p) return ag.status === 'agendado' ? 'sem' : 'nenhuma';
+  switch (p.status) {
+    case 'pago':
+      return 'pago';
+    case 'pago_apos_cancelamento':
+    case 'divergente':
+      return 'revisao';
+    case 'expirado':
+      return 'expirado';
+    case 'cancelado':
+      return 'cancelado';
+    default:
+      return p.venceEm && p.venceEm.getTime() <= agora ? 'vencido' : 'pendente';
+  }
+}
+
 // Preço e nome copiados do catálogo no momento da contratação (preço em centavos inteiros)
 export type Item = { servicoId: string; nome: string; precoCentavos: number };
 
@@ -44,6 +90,7 @@ export type Agendamento = {
   observacoes: string;
   checklist: { fotos: Record<string, FotoChecklist> };
   avaliacao: Avaliacao | null;
+  pagamento: Pagamento | null; // gravado só pelo servidor
   externo: boolean; // todos os itens são insulfilm (profissional externo); vem do catálogo
   vagaId: string; // vaga em /ocupacao que este agendamento ocupa
   criadoEm: Date | null;
@@ -187,6 +234,9 @@ export function lerAgendamento(id: string, d: DocumentData): Agendamento {
     checklist: { fotos },
     avaliacao: av ? { nota: av.nota, nps: av.nps, comentario: av.comentario ?? '', em: paraData(av.em) } : null,
     externo: d.externo === true,
+    pagamento: d.pagamento?.status
+      ? { status: d.pagamento.status, venceEm: paraData(d.pagamento.venceEm), revisao: d.pagamento.revisao === true }
+      : null,
     vagaId: d.vagaId ?? '',
     criadoEm: paraData(d.criadoEm)
   };

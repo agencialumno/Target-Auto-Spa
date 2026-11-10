@@ -1190,3 +1190,94 @@ describe('agendamentos externos (insulfilm como funcionário atribuído)', () =>
     });
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Pagamento (Asaas): só o servidor escreve
+// ---------------------------------------------------------------------------------------------
+describe('pagamento: campo "pagamento", eventosAsaas e clientesAsaas só pelo servidor', () => {
+  const pag = { status: 'pago', checkoutId: 'chk-1', pagoEm: Timestamp.now() };
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await updateDoc(doc(db, 'agendamentos', 'agAtrib'), { pagamento: { status: 'pendente', checkoutId: 'chk-1' } });
+      await setDoc(doc(db, 'eventosAsaas', 'evt_1'), { evento: 'CHECKOUT_PAID', resultado: 'pago' });
+      await setDoc(doc(db, 'clientesAsaas', 'ana'), { asaasCustomerId: 'cus_000005' });
+    });
+  });
+
+  const atualiza = (uid: string | null, dados: Record<string, unknown>) =>
+    updateDoc(doc(como(uid), 'agendamentos', 'agAtrib'), { atualizadoEm: serverTimestamp(), ...dados });
+
+  describe('campo pagamento no agendamento', () => {
+    it('dono, gerente do condomínio, funcionário atribuído e admin LEEM o status do pagamento', async () => {
+      for (const uid of ['ana', 'gui', 'fun', 'adm']) {
+        await assertSucceeds(getDoc(doc(como(uid), 'agendamentos', 'agAtrib')));
+      }
+    });
+
+    it('NENHUM papel cria o agendamento já com pagamento (nem "pago")', async () => {
+      const db = como('ana');
+      const b = writeBatch(db);
+      const dados = comVaga({
+        clienteId: 'ana', clienteNome: 'Ana', condominioId: 'c1',
+        itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 }], total: 6500,
+        data: '2030-04-01', hora: '09:00', inicio: futuro(), status: 'agendado', funcionarioId: null, funcionarioNome: null,
+        veiculo: { modelo: 'Gol', placa: 'ABC1D23' }, observacoes: '', checklist: { fotos: {} }, avaliacao: null,
+        externo: false, criadoEm: serverTimestamp(), pagamento: pag
+      });
+      b.set(doc(db, 'agendamentos', 'novoPag'), dados);
+      b.set(doc(db, 'ocupacao', (dados as any).vagaId), { condominioId: 'c1', data: '2030-04-01', hora: '09:00', externo: false, agendamentoId: 'novoPag' });
+      await assertFails(b.commit());
+    });
+
+    it.each([
+      ['ana', 'dono'],
+      ['gui', 'gerente do condomínio'],
+      ['fun', 'funcionário atribuído'],
+      ['adm', 'admin'],
+      ['gabi', 'gerente de outro condomínio'],
+      ['ins', 'papel legado']
+    ])('%s (%s) NÃO altera o pagamento', async (uid) => {
+      await assertFails(atualiza(uid, { pagamento: pag }));
+      await assertFails(atualiza(uid, { 'pagamento.status': 'pago' }));
+      await assertFails(atualiza(uid, { pagamento: { status: 'pago_apos_cancelamento', revisao: false } }));
+    });
+
+    it('NÃO apaga o campo nem troca o status junto com o pagamento', async () => {
+      for (const uid of ['ana', 'gui', 'fun', 'adm']) {
+        await assertFails(atualiza(uid, { pagamento: null }));
+        await assertFails(atualiza(uid, { status: 'em_andamento', pagamento: pag }));
+      }
+    });
+
+    it('o admin continua alterando o resto do agendamento (só o pagamento é do servidor)', async () => {
+      await assertSucceeds(atualiza('adm', { status: 'em_andamento' }));
+    });
+
+    it('anônimo não altera', async () => {
+      await assertFails(atualiza(null, { pagamento: pag }));
+    });
+  });
+
+  describe('eventosAsaas e clientesAsaas: ninguém no cliente', () => {
+    for (const colecao of ['eventosAsaas', 'clientesAsaas']) {
+      const id = colecao === 'eventosAsaas' ? 'evt_1' : 'ana';
+
+      it.each(['ana', 'bia', 'gui', 'fun', 'fins', 'adm', 'ins', null])(`${colecao}: %s não lê, não lista, não escreve, não apaga`, async (uid) => {
+        const db = como(uid);
+        await assertFails(getDoc(doc(db, colecao, id)));
+        await assertFails(getDocs(collection(db, colecao)));
+        await assertFails(setDoc(doc(db, colecao, 'novo'), { asaasCustomerId: 'cus_1', resultado: 'pago' }));
+        await assertFails(updateDoc(doc(db, colecao, id), { asaasCustomerId: 'cus_2', resultado: 'pago' }));
+        await assertFails(deleteDoc(doc(db, colecao, id)));
+      });
+    }
+
+    it('o cliente não grava o id do Asaas no próprio perfil nem lê de volta o que o servidor guardou', async () => {
+      await assertFails(updateDoc(doc(como('ana'), 'users', 'ana'), { asaasCustomerId: 'cus_000005' }));
+      await assertFails(setDoc(doc(como('novo'), 'users', 'novo'), { nome: 'x', email: 'x@ex.com', role: 'cliente', condominioId: null, asaasCustomerId: 'cus_1' }));
+      await assertFails(getDoc(doc(como('ana'), 'clientesAsaas', 'ana')));
+    });
+  });
+});
