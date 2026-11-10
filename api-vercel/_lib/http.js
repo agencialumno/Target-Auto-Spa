@@ -95,6 +95,12 @@ export function endpoint(
       return res.status(413).json({ erro: 'Requisição grande demais.' });
     }
 
+    // Sem credencial não há o que fazer: responde 401 sem sequer iniciar o Firebase Admin
+    // (assim uma configuração quebrada do Admin SDK não vira 500 para quem nem se autenticou)
+    if (!/^Bearer .+/.test(String(req.headers.authorization ?? ''))) {
+      return res.status(401).json({ erro: 'Faça login para continuar.' });
+    }
+
     try {
       const resultado = await logica(obterDeps(), req.headers.authorization, req.body);
       return res.status(200).json(resultado);
@@ -125,6 +131,13 @@ export function endpointWebhook({ obterDeps = dependencias, limitador = limitado
     const tipo = String(req.headers['content-type'] ?? '');
     if (!tipo.toLowerCase().startsWith('application/json')) return res.status(415).json({ erro: 'Envie JSON.' });
     if (Number(req.headers['content-length'] ?? 0) > 65536) return res.status(413).json({ erro: 'Requisição grande demais.' });
+
+    // Token errado ou ausente responde antes de iniciar o Firebase Admin; sem a variável, recusa tudo
+    const { tokenValido } = await import('./webhook-asaas.js');
+    if (!env.ASAAS_WEBHOOK_TOKEN) return res.status(503).json({ erro: 'Webhook não configurado.' });
+    if (!tokenValido(req.headers['asaas-access-token'], env.ASAAS_WEBHOOK_TOKEN)) {
+      return res.status(401).json({ erro: 'Não autorizado.' });
+    }
 
     try {
       const logica = processar ?? (await import('./webhook-asaas.js')).processarWebhook;

@@ -254,7 +254,7 @@ test('o handler nunca registra o corpo do evento em log', async () => {
         throw Object.assign(new Error('cpf 12345678909 maria@exemplo.com'), { name: 'ErroDeTeste' });
       }
     });
-    await h(fakeReq({ id: 'e', event: 'CHECKOUT_PAID', checkout: { customer: { cpfCnpj: '12345678909' } } }), res);
+    await h(fakeReq({ id: 'e', event: 'CHECKOUT_PAID', checkout: { customer: { cpfCnpj: '12345678909' } } }, { 'asaas-access-token': TOKEN }), res);
     assert.equal(res.codigo, 500);
     assert.equal(logs.join('\n').includes('12345678909'), false);
     assert.equal(logs.join('\n').includes('maria@'), false);
@@ -302,4 +302,31 @@ test('páginas de retorno: pago, cancelado e expirado; informativas, sem script 
   assert.match(paginaRetorno('expirado'), /15 minutos/);
   assert.equal(paginaRetorno('qualquer'), null);
   assert.equal(paginaRetorno('__proto__'), null);
+});
+
+test('sem credencial, os endpoints respondem 401/503 sem iniciar o Firebase Admin (config quebrada não vira 500)', async () => {
+  const quebrado = () => {
+    throw new SyntaxError('credencial do Admin SDK inválida');
+  };
+  // Webhook: sem token configurado 503; token errado 401; nenhum chama obterDeps
+  const w = endpointWebhook({ obterDeps: quebrado, env: { ASAAS_WEBHOOK_TOKEN: TOKEN } });
+  let res = fakeRes();
+  await w(fakeReq({ id: 'e', event: 'CHECKOUT_PAID' }, { 'asaas-access-token': 'errado' }), res);
+  assert.equal(res.codigo, 401);
+  res = fakeRes();
+  await w(fakeReq({ id: 'e', event: 'CHECKOUT_PAID' }), res);
+  assert.equal(res.codigo, 401);
+  res = fakeRes();
+  await endpointWebhook({ obterDeps: quebrado, env: {} })(fakeReq({ id: 'e', event: 'CHECKOUT_PAID' }), res);
+  assert.equal(res.codigo, 503);
+
+  // Endpoints autenticados: sem "Authorization: Bearer" 401, sem chamar obterDeps
+  const { endpoint } = await import('../_lib/http.js');
+  const h = endpoint(async () => ({ ok: true }), { obterDeps: quebrado, env: {} });
+  for (const auth of [undefined, '', 'Basic abc', 'Bearer']) {
+    res = fakeRes();
+    await h({ method: 'POST', headers: { 'content-type': 'application/json', ...(auth === undefined ? {} : { authorization: auth }), 'x-forwarded-for': '7.7.7.7' }, body: {} }, res);
+    assert.equal(res.codigo, 401, String(auth));
+    assert.equal(typeof res.corpo.erro, 'string');
+  }
 });
