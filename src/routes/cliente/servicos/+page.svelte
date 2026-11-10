@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
-  import { servicos, nomesCategorias, brl, type Categoria } from '$lib/mock';
+  import { nomesCategorias, brl, type Categoria } from '$lib/mock';
+  import { servicos, contratavel } from '$lib/catalogo.svelte';
 
   type Filtro = 'todos' | Categoria;
 
@@ -20,7 +21,7 @@
       const buscaOk =
         s.nome.toLowerCase().includes(texto.trim().toLowerCase()) ||
         s.codigo.toLowerCase().includes(texto.trim().toLowerCase());
-      return !s.oculto && (filtro === 'todos' || s.categoria === filtro) && buscaOk;
+      return !s.oculto && contratavel(s) && (filtro === 'todos' || s.categoria === filtro) && buscaOk;
     })
   );
 </script>

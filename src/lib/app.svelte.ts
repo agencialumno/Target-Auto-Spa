@@ -1,37 +1,72 @@
-import { chaveData } from './agenda';
-import { planos, angulos360, getServico } from './mock';
+// Estado do app sobre o Firestore e o Storage: agendamentos, chat e notificações.
+// Cada papel escuta só o que as regras deixam ler (cliente: os próprios; gerente: do condomínio;
+// funcionário: os atribuídos a ele; admin: todos). Nada de dados de exemplo.
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  increment,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+  where,
+  writeBatch,
+  type Unsubscribe
+} from 'firebase/firestore';
+import { getDownloadURL, ref as refStorage, uploadBytes } from 'firebase/storage';
+import { db, storage } from './firebase';
+import { angulos360 } from './mock';
+import { getServico } from './catalogo.svelte';
 import { gastoJanela, nivelAtual, proximoNivel, type Compra } from './niveis';
 import { dataCurta } from './formato';
+import {
+  caminhoFoto,
+  chaveFoto,
+  faltamFotos,
+  fotosFeitas,
+  lerAgendamento,
+  montarAgendamento,
+  nomesItens,
+  proximoStatus,
+  type Agendamento,
+  type Avaliacao,
+  type Fase,
+  type Item,
+  type NovoAgendamento,
+  type Status,
+  type Veiculo
+} from './agendamentos';
 
-export type Status = 'agendado' | 'em-atendimento' | 'finalizado';
-export type Fase = 'antes' | 'depois';
-
-export const ordemStatus: Status[] = ['agendado', 'em-atendimento', 'finalizado'];
-
-export const rotuloStatus: Record<Status, string> = {
-  agendado: 'Agendado',
-  'em-atendimento': 'Em atendimento',
-  finalizado: 'Finalizado'
-};
-
-export type Avaliacao = { nota: number; nps: number; comentario: string };
-
-export type Agendamento = {
-  id: string;
-  servicos: string[];
-  data: string; // aaaa-mm-dd
-  hora: string;
-  total: number;
-  status: Status;
-  avaliacao?: Avaliacao;
-  cliente?: string;
-  carro?: string;
-  placa?: string;
-  fotos?: Record<string, string>; // chave "antes:Frente" -> imagem em base64
-};
+export { ordemStatus, rotuloStatus } from './agendamentos';
+export type { Agendamento, Avaliacao, Fase, Status } from './agendamentos';
 
 // lida = false significa "ainda não vista por quem recebeu"
-export type Mensagem = { de: 'cliente' | 'gerente'; texto: string; hora: string; lida?: boolean };
+export type Mensagem = {
+  id: string;
+  de: 'cliente' | 'gerente';
+  texto: string;
+  hora: string;
+  lida?: boolean;
+  criadoEm: Date | null;
+};
+
+export type Conversa = {
+  id: string; // uid do cliente
+  clienteNome: string;
+  condominioId: string;
+  ultimaMensagem: string;
+  ultimaHora: Date | null;
+  naoLidasGerente: number;
+  naoLidasCliente: number;
+};
+
+export type Funcionario = { uid: string; nome: string };
 
 export type Notificacao = {
   id: string;
@@ -43,67 +78,162 @@ export type Notificacao = {
   agendamentoId?: string;
 };
 
-const CHAVE = 'target-auto-spa-demo-v1';
-const MAX_NOTIFICACOES = 50;
+type Sessao = { uid: string; nome: string; role: string; condominioId: string | null };
 
-// Dados de exemplo até existir o cadastro de cliente e de veículo
-const CLIENTE_DEMO = { cliente: 'Cliente exemplo', carro: 'Carro exemplo', placa: 'ABC1D23' };
+const MAX_NOTIFICACOES = 50;
+const chaveNotificacoes = (uid: string) => `target-auto-spa-notificacoes-v1-${uid}`;
 
 const horaAgora = () =>
   new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-const diasAtras = (n: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return chaveData(d);
-};
-
-const nomesDe = (ids: string[]) =>
-  ids
-    .map((id) => getServico(id)?.nome)
-    .filter(Boolean)
-    .join(' + ');
-
-const inicial = () => ({
-  agendamentos: [] as Agendamento[],
-  // Uma compra recente e uma antiga (fora dos 90 dias), só para a demonstração
-  compras: [
-    { data: diasAtras(20), valor: 120 },
-    { data: diasAtras(200), valor: 500 }
-  ] as Compra[],
-  planoId: null as string | null,
-  mensagens: [
-    {
-      de: 'gerente',
-      texto: 'Olá! Sou o gerente do seu condomínio. Como posso ajudar?',
-      hora: horaAgora(),
-      lida: true
-    }
-  ] as Mensagem[],
-  notificacoes: [] as Notificacao[]
-});
+const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : 0);
 
 class App {
   agendamentos = $state<Agendamento[]>([]);
-  compras = $state<Compra[]>([]);
-  planoId = $state<string | null>(null);
   mensagens = $state<Mensagem[]>([]);
+  conversas = $state<Conversa[]>([]);
+  conversaAtiva = $state<string | null>(null);
   notificacoes = $state<Notificacao[]>([]);
+  funcionarios = $state<Funcionario[]>([]);
+  carregado = $state(false);
+  condominioNome = $state('');
+  erro = $state('');
 
-  constructor() {
-    const base = inicial();
-    let dados = base;
-    try {
-      const bruto = typeof localStorage !== 'undefined' ? localStorage.getItem(CHAVE) : null;
-      if (bruto) dados = { ...base, ...JSON.parse(bruto) };
-    } catch {
-      dados = base;
+  private sessao: Sessao | null = null;
+  private paradas: Unsubscribe[] = [];
+  private paradaMensagens: Unsubscribe | null = null;
+  private conhecidos = new Map<string, Status>();
+  private urls = new Map<string, string>();
+  fotoUrls = $state<Record<string, string>>({});
+  private meuChatNaoLidas = $state(0);
+
+  // ---- Ciclo de vida ----
+  iniciar(sessao: Sessao) {
+    if (this.sessao?.uid === sessao.uid && this.sessao.role === sessao.role) return;
+    this.parar();
+    this.sessao = sessao;
+    this.carregarNotificacoes();
+    if (sessao.condominioId) {
+      getDoc(doc(db, 'condominios', sessao.condominioId))
+        .then((d) => {
+          if (this.sessao?.uid === sessao.uid && d?.exists()) this.condominioNome = String(d.data().nome ?? '');
+        })
+        .catch(() => {});
     }
-    this.agendamentos = dados.agendamentos;
-    this.compras = dados.compras;
-    this.planoId = dados.planoId;
-    this.mensagens = dados.mensagens;
-    this.notificacoes = dados.notificacoes;
+    const ouvir = (u: Unsubscribe) => this.paradas.push(u);
+    const falha = (e: unknown) => {
+      this.erro = `Não foi possível carregar os dados (${(e as { code?: string })?.code ?? 'erro'}).`;
+    };
+
+    const colecao = collection(db, 'agendamentos');
+    let consulta = null;
+    if (sessao.role === 'cliente') {
+      consulta = query(colecao, where('clienteId', '==', sessao.uid), orderBy('inicio', 'desc'), limit(200));
+    } else if (sessao.role === 'gerente' && sessao.condominioId) {
+      consulta = query(colecao, where('condominioId', '==', sessao.condominioId), orderBy('inicio', 'desc'), limit(300));
+    } else if (sessao.role === 'funcionario') {
+      consulta = query(colecao, where('funcionarioId', '==', sessao.uid), orderBy('inicio', 'asc'), limit(200));
+    } else if (sessao.role === 'admin') {
+      consulta = query(colecao, orderBy('inicio', 'desc'), limit(1000));
+    }
+    if (consulta) {
+      let primeira = true;
+      ouvir(
+        onSnapshot(
+          consulta,
+          (snap) => {
+            this.agendamentos = snap.docs.map((d) => lerAgendamento(d.id, d.data()));
+            if (!primeira && sessao.role === 'cliente') this.avisarMudancas();
+            for (const a of this.agendamentos) this.conhecidos.set(a.id, a.status);
+            primeira = false;
+            this.carregado = true;
+          },
+          falha
+        )
+      );
+    } else {
+      this.carregado = true;
+    }
+
+    if (sessao.role === 'cliente') {
+      // Conversa do cliente: chatId = uid
+      ouvir(
+        onSnapshot(
+          doc(db, 'chats', sessao.uid),
+          (snap) => {
+            this.meuChatNaoLidas = snap.exists() ? (snap.data().naoLidasCliente ?? 0) : 0;
+          },
+          () => {}
+        )
+      );
+      this.abrirConversa(sessao.uid);
+    }
+
+    if (sessao.role === 'gerente' && sessao.condominioId) {
+      ouvir(
+        onSnapshot(
+          query(collection(db, 'chats'), where('condominioId', '==', sessao.condominioId), orderBy('ultimaHora', 'desc'), limit(100)),
+          (snap) => {
+            this.conversas = snap.docs.map((d) => this.lerConversa(d.id, d.data()));
+          },
+          () => {}
+        )
+      );
+      ouvir(
+        onSnapshot(
+          query(collection(db, 'users'), where('role', '==', 'funcionario')),
+          (snap) => {
+            this.funcionarios = snap.docs
+              .map((d) => ({ uid: d.id, nome: String(d.data().nome ?? '') }))
+              .sort((a, b) => a.nome.localeCompare(b.nome));
+          },
+          () => {}
+        )
+      );
+    }
+  }
+
+  parar() {
+    for (const u of this.paradas) u();
+    this.paradas = [];
+    this.paradaMensagens?.();
+    this.paradaMensagens = null;
+    this.sessao = null;
+    this.agendamentos = [];
+    this.mensagens = [];
+    this.conversas = [];
+    this.conversaAtiva = null;
+    this.notificacoes = [];
+    this.funcionarios = [];
+    this.carregado = false;
+    this.condominioNome = '';
+    this.erro = '';
+    this.conhecidos.clear();
+    this.urls.clear();
+    this.fotoUrls = {};
+    this.meuChatNaoLidas = 0;
+  }
+
+  private lerConversa(id: string, d: Record<string, any>): Conversa {
+    return {
+      id,
+      clienteNome: d.clienteNome ?? '',
+      condominioId: d.condominioId ?? '',
+      ultimaMensagem: d.ultimaMensagem ?? '',
+      ultimaHora: d.ultimaHora instanceof Timestamp ? d.ultimaHora.toDate() : null,
+      naoLidasGerente: d.naoLidasGerente ?? 0,
+      naoLidasCliente: d.naoLidasCliente ?? 0
+    };
+  }
+
+  // ---- Indicadores ----
+  get compras(): Compra[] {
+    return this.agendamentos
+      .filter((a) => a.status === 'finalizado' && a.clienteId === this.sessao?.uid)
+      .map((a) => ({
+        data: a.data,
+        valor: a.total / 100
+      }));
   }
 
   get gasto() {
@@ -118,26 +248,21 @@ class App {
     return proximoNivel(this.gasto);
   }
 
-  get plano() {
-    return planos.find((p) => p.id === this.planoId) ?? null;
-  }
-
-  // ---- Contadores (o número em cima dos ícones) ----
   get msgNaoLidasCliente() {
-    return this.mensagens.filter((m) => m.de === 'gerente' && m.lida === false).length;
+    return this.meuChatNaoLidas;
   }
 
   get msgNaoLidasGerente() {
-    return this.mensagens.filter((m) => m.de === 'cliente' && m.lida === false).length;
+    return this.conversas.reduce((soma, c) => soma + c.naoLidasGerente, 0);
   }
 
   get naoLidasNotif() {
     return this.notificacoes.filter((n) => !n.lida).length;
   }
 
-  // ---- Indicadores para o administrador ----
+  // Receita em centavos: só o que foi finalizado
   get receita() {
-    return this.agendamentos.reduce((soma, a) => soma + a.total, 0);
+    return this.agendamentos.filter((a) => a.status === 'finalizado').reduce((soma, a) => soma + a.total, 0);
   }
 
   get avaliados() {
@@ -152,27 +277,28 @@ class App {
 
   // NPS = % de promotores (9-10) menos % de detratores (0-6)
   get nps() {
-    const lista = this.avaliados;
+    const lista = this.avaliados.filter((a) => typeof a.avaliacao?.nps === 'number');
     if (!lista.length) return null;
     const promotores = lista.filter((a) => (a.avaliacao?.nps ?? 0) >= 9).length;
     const detratores = lista.filter((a) => (a.avaliacao?.nps ?? 0) <= 6).length;
     return Math.round(((promotores - detratores) / lista.length) * 100);
   }
 
-  private salvar() {
+  // ---- Notificações (só neste aparelho) ----
+  private carregarNotificacoes() {
     try {
-      localStorage.setItem(
-        CHAVE,
-        JSON.stringify({
-          agendamentos: this.agendamentos,
-          compras: this.compras,
-          planoId: this.planoId,
-          mensagens: this.mensagens,
-          notificacoes: this.notificacoes
-        })
-      );
+      const bruto = this.sessao ? localStorage.getItem(chaveNotificacoes(this.sessao.uid)) : null;
+      this.notificacoes = bruto ? JSON.parse(bruto) : [];
     } catch {
-      // sem espaço ou sem armazenamento: a demo continua funcionando na memória
+      this.notificacoes = [];
+    }
+  }
+
+  private salvarNotificacoes() {
+    try {
+      if (this.sessao) localStorage.setItem(chaveNotificacoes(this.sessao.uid), JSON.stringify(this.notificacoes));
+    } catch {
+      // sem armazenamento: as notificações ficam só na memória
     }
   }
 
@@ -186,171 +312,269 @@ class App {
     if (this.notificacoes.length > MAX_NOTIFICACOES) {
       this.notificacoes = this.notificacoes.slice(0, MAX_NOTIFICACOES);
     }
+    this.salvarNotificacoes();
   }
 
-  criarAgendamento(dados: { servicos: string[]; data: string; hora: string; total: number }) {
-    const id = `ag-${Date.now()}`;
-    this.agendamentos.unshift({ id, ...dados, ...CLIENTE_DEMO, status: 'agendado', fotos: {} });
-    this.compras.push({ data: chaveData(new Date()), valor: dados.total });
-    this.notificar({
-      tipo: 'agendamento',
-      titulo: 'Agendamento confirmado',
-      texto: `${nomesDe(dados.servicos)} · ${dataCurta(dados.data)} às ${dados.hora}`,
-      agendamentoId: id
-    });
-    this.salvar();
-    return id;
-  }
-
-  // Avança sem regras. Usado pelo botão de demo do cliente e pelo instalador de insulfilm
-  avancar(id: string) {
-    const ag = this.agendamentos.find((a) => a.id === id);
-    if (!ag) return;
-    const i = ordemStatus.indexOf(ag.status);
-    if (i < ordemStatus.length - 1) {
-      ag.status = ordemStatus[i + 1];
-      const nomes = nomesDe(ag.servicos);
-      if (ag.status === 'em-atendimento') {
+  // O gerente/funcionário mudou o andamento: avisa o cliente neste aparelho
+  private avisarMudancas() {
+    for (const a of this.agendamentos) {
+      const antes = this.conhecidos.get(a.id);
+      if (!antes || antes === a.status) continue;
+      const nomes = nomesItens(a.itens);
+      if (a.status === 'em_andamento') {
         this.notificar({
           tipo: 'status',
           titulo: 'Atendimento iniciado',
           texto: `${nomes}: nossa equipe começou a cuidar do seu carro.`,
-          agendamentoId: ag.id
+          agendamentoId: a.id
         });
-      } else if (ag.status === 'finalizado') {
+      } else if (a.status === 'finalizado') {
         this.notificar({
           tipo: 'status',
           titulo: 'Serviço finalizado',
           texto: `${nomes}: seu carro está pronto. Conte como foi na avaliação!`,
-          agendamentoId: ag.id
+          agendamentoId: a.id
         });
       }
     }
-    this.salvar();
-  }
-
-  // Avanço do gerente: exige as fotos 360º completas. Devolve a mensagem de erro, ou null se deu certo
-  avancarComRegras(id: string): string | null {
-    const ag = this.agendamentos.find((a) => a.id === id);
-    if (!ag) return 'Agendamento não encontrado.';
-
-    if (ag.status === 'agendado') {
-      const feitas = this.fotosFeitas(ag, 'antes');
-      if (feitas < angulos360.length) {
-        return `Faltam fotos de "Como chegou" (${feitas}/${angulos360.length}).`;
-      }
-    }
-    if (ag.status === 'em-atendimento') {
-      const feitas = this.fotosFeitas(ag, 'depois');
-      if (feitas < angulos360.length) {
-        return `Faltam fotos de "Como saiu" (${feitas}/${angulos360.length}).`;
-      }
-    }
-    this.avancar(id);
-    return null;
-  }
-
-  fotosFeitas(ag: Agendamento, fase: Fase) {
-    return angulos360.filter((a) => ag.fotos?.[`${fase}:${a}`]).length;
-  }
-
-  salvarFoto(id: string, fase: Fase, angulo: string, imagem: string) {
-    const ag = this.agendamentos.find((a) => a.id === id);
-    if (!ag) return;
-    const antes = this.fotosFeitas(ag, fase);
-    ag.fotos = { ...(ag.fotos ?? {}), [`${fase}:${angulo}`]: imagem };
-    const depois = this.fotosFeitas(ag, fase);
-
-    // Avisa o cliente uma única vez, quando o checklist da etapa fica completo
-    if (antes < angulos360.length && depois === angulos360.length) {
-      this.notificar({
-        tipo: 'foto',
-        titulo: fase === 'antes' ? 'Fotos da chegada registradas' : 'Fotos da saída registradas',
-        texto: `O checklist 360º (${fase === 'antes' ? 'como chegou' : 'como saiu'}) do seu carro está completo.`,
-        agendamentoId: ag.id
-      });
-    }
-    this.salvar();
-  }
-
-  avaliar(id: string, avaliacao: Avaliacao) {
-    const ag = this.agendamentos.find((a) => a.id === id);
-    if (!ag) return;
-    ag.avaliacao = avaliacao;
-    this.salvar();
-  }
-
-  assinar(planoId: string | null) {
-    this.planoId = planoId;
-    this.salvar();
-  }
-
-  // Mensagem do cliente: fica "não lida" para o gerente
-  enviar(texto: string) {
-    const limpo = texto.trim();
-    if (!limpo) return;
-    this.mensagens.push({ de: 'cliente', texto: limpo, hora: horaAgora(), lida: false });
-    this.salvar();
-    // Resposta automática só para a demonstração
-    setTimeout(() => {
-      const resposta = 'Recebi sua mensagem. Já verifico e te respondo por aqui.';
-      this.mensagens.push({ de: 'gerente', texto: resposta, hora: horaAgora(), lida: false });
-      this.notificar({ tipo: 'mensagem', titulo: 'Nova mensagem do gerente', texto: resposta });
-      this.salvar();
-    }, 1200);
-  }
-
-  // Resposta escrita pelo gerente na tela dele: fica "não lida" para o cliente
-  responder(texto: string) {
-    const limpo = texto.trim();
-    if (!limpo) return;
-    this.mensagens.push({ de: 'gerente', texto: limpo, hora: horaAgora(), lida: false });
-    this.notificar({ tipo: 'mensagem', titulo: 'Nova mensagem do gerente', texto: limpo });
-    this.salvar();
-  }
-
-  // Marca como lidas as mensagens que chegaram para quem abriu a conversa
-  lerMensagens(para: 'cliente' | 'gerente') {
-    const remetente = para === 'cliente' ? 'gerente' : 'cliente';
-    let mudou = false;
-    for (const m of this.mensagens) {
-      if (m.de === remetente && m.lida === false) {
-        m.lida = true;
-        mudou = true;
-      }
-    }
-    if (para === 'cliente') {
-      for (const n of this.notificacoes) {
-        if (n.tipo === 'mensagem' && !n.lida) {
-          n.lida = true;
-          mudou = true;
-        }
-      }
-    }
-    if (mudou) this.salvar();
   }
 
   marcarLida(id: string) {
     const n = this.notificacoes.find((x) => x.id === id);
     if (n && !n.lida) {
       n.lida = true;
-      this.salvar();
+      this.salvarNotificacoes();
     }
   }
 
   marcarTodasLidas() {
     for (const n of this.notificacoes) n.lida = true;
-    this.salvar();
+    this.salvarNotificacoes();
   }
 
-  resetar() {
-    const base = inicial();
-    this.agendamentos = base.agendamentos;
-    this.compras = base.compras;
-    this.planoId = base.planoId;
-    this.mensagens = base.mensagens;
-    this.notificacoes = base.notificacoes;
-    this.salvar();
+  // ---- Agendamentos ----
+  // Cria o agendamento. O preço de cada item é o do catálogo publicado no Firestore (as regras conferem).
+  async criarAgendamento(dados: {
+    servicos: string[];
+    data: string;
+    hora: string;
+    veiculo: Veiculo;
+    observacoes?: string;
+  }): Promise<string> {
+    const s = this.sessao;
+    if (!s || s.role !== 'cliente' || !s.condominioId) throw new Error('Entre em um condomínio para agendar.');
+    const itens: Item[] = dados.servicos.map((id) => {
+      const sv = getServico(id);
+      if (!sv?.publicado || sv.ativo === false) throw new Error('Serviço indisponível no momento.');
+      return { servicoId: sv.id, nome: sv.nome, precoCentavos: sv.precoCentavos };
+    });
+    const novo: NovoAgendamento = {
+      clienteId: s.uid,
+      clienteNome: s.nome || 'Cliente',
+      condominioId: s.condominioId,
+      itens,
+      data: dados.data,
+      hora: dados.hora,
+      veiculo: dados.veiculo,
+      observacoes: dados.observacoes
+    };
+    const ref = doc(collection(db, 'agendamentos'));
+    await setDoc(ref, montarAgendamento(novo, serverTimestamp()));
+    this.notificar({
+      tipo: 'agendamento',
+      titulo: 'Agendamento confirmado',
+      texto: `${nomesItens(itens)} · ${dataCurta(dados.data)} às ${dados.hora}`,
+      agendamentoId: ref.id
+    });
+    return ref.id;
+  }
+
+  async cancelar(id: string) {
+    await updateDoc(doc(db, 'agendamentos', id), { status: 'cancelado', atualizadoEm: serverTimestamp() });
+  }
+
+  fotosFeitas(ag: Agendamento, fase: Fase) {
+    return fotosFeitas(ag, fase, angulos360);
+  }
+
+  // Avanço de gerente/funcionário: exige as 8 fotos da etapa. Devolve a mensagem de erro, ou null se deu certo
+  async avancarComRegras(id: string): Promise<string | null> {
+    const ag = this.agendamentos.find((a) => a.id === id);
+    if (!ag) return 'Agendamento não encontrado.';
+    const falta = faltamFotos(ag, angulos360);
+    if (falta) return falta;
+    const proximo = proximoStatus(ag.status);
+    if (!proximo) return null;
+    try {
+      await updateDoc(doc(db, 'agendamentos', id), { status: proximo, atualizadoEm: serverTimestamp() });
+      return null;
+    } catch (e) {
+      return `Não foi possível atualizar (${(e as { code?: string })?.code ?? 'erro'}).`;
+    }
+  }
+
+  async atribuirFuncionario(id: string, funcionario: Funcionario | null) {
+    await updateDoc(doc(db, 'agendamentos', id), {
+      funcionarioId: funcionario?.uid ?? null,
+      funcionarioNome: funcionario?.nome ?? null,
+      atualizadoEm: serverTimestamp()
+    });
+  }
+
+  // Envia a foto ao Storage e grava só o caminho no documento (nunca a imagem)
+  async salvarFoto(id: string, fase: Fase, angulo: string, imagem: Blob) {
+    const caminho = caminhoFoto(id, fase, angulo);
+    await uploadBytes(refStorage(storage, caminho), imagem, { contentType: 'image/jpeg' });
+    await updateDoc(doc(db, 'agendamentos', id), {
+      [`checklist.fotos.${chaveFoto(fase, angulo)}`]: { path: caminho, em: Timestamp.now() },
+      atualizadoEm: serverTimestamp()
+    });
+    this.urls.delete(caminho);
+  }
+
+  // Endereço de download da foto (cacheado). Dispara a busca na primeira chamada.
+  urlFoto(path: string): string | undefined {
+    const pronta = this.fotoUrls[path];
+    if (pronta) return pronta;
+    if (!this.urls.has(path)) {
+      this.urls.set(path, '');
+      getDownloadURL(refStorage(storage, path))
+        .then((u) => {
+          this.urls.set(path, u);
+          this.fotoUrls = { ...this.fotoUrls, [path]: u };
+        })
+        .catch(() => this.urls.delete(path));
+    }
+    return undefined;
+  }
+
+  async avaliar(id: string, avaliacao: Avaliacao) {
+    await updateDoc(doc(db, 'agendamentos', id), {
+      avaliacao: {
+        nota: Math.round(avaliacao.nota),
+        ...(typeof avaliacao.nps === 'number' ? { nps: Math.round(avaliacao.nps) } : {}),
+        comentario: avaliacao.comentario.slice(0, 500),
+        em: serverTimestamp()
+      },
+      atualizadoEm: serverTimestamp()
+    });
+  }
+
+  // ---- Chat ----
+  // Cliente: a conversa é a dele (chatId = uid). Gerente/admin: escolhem a conversa.
+  abrirConversa(chatId: string) {
+    if (this.conversaAtiva === chatId) return;
+    this.paradaMensagens?.();
+    this.conversaAtiva = chatId;
+    this.mensagens = [];
+    let primeira = true;
+    this.paradaMensagens = onSnapshot(
+      query(collection(db, 'chats', chatId, 'mensagens'), orderBy('criadoEm', 'asc'), limit(500)),
+      (snap) => {
+        this.mensagens = snap.docs.map((d) => {
+          const m = d.data();
+          return {
+            id: d.id,
+            de: m.de,
+            texto: m.texto,
+            hora: m.hora,
+            lida: m.lida,
+            criadoEm: m.criadoEm instanceof Timestamp ? m.criadoEm.toDate() : null
+          };
+        });
+        if (!primeira && this.sessao?.role === 'cliente') {
+          for (const c of snap.docChanges()) {
+            const m = c.doc.data();
+            if (c.type === 'added' && m.de === 'gerente' && !c.doc.metadata.hasPendingWrites) {
+              this.notificar({ tipo: 'mensagem', titulo: 'Nova mensagem do gerente', texto: String(m.texto).slice(0, 120) });
+            }
+          }
+        }
+        primeira = false;
+      },
+      () => {}
+    );
+  }
+
+  fecharConversa() {
+    this.paradaMensagens?.();
+    this.paradaMensagens = null;
+    this.conversaAtiva = null;
+    this.mensagens = [];
+  }
+
+  private async garantirConversa(chatId: string) {
+    const s = this.sessao;
+    if (!s || s.role !== 'cliente' || chatId !== s.uid || !s.condominioId) return;
+    const ref = doc(db, 'chats', chatId);
+    if (!(await getDoc(ref)).exists()) {
+      await setDoc(ref, { clienteId: s.uid, clienteNome: s.nome || 'Cliente', condominioId: s.condominioId });
+    }
+  }
+
+  // Mensagem do cliente: fica "não lida" para o gerente
+  async enviar(texto: string) {
+    const limpo = texto.trim();
+    const s = this.sessao;
+    if (!limpo || !s) return;
+    await this.garantirConversa(s.uid);
+    const lote = writeBatch(db);
+    lote.set(doc(collection(db, 'chats', s.uid, 'mensagens')), {
+      de: 'cliente',
+      texto: limpo.slice(0, 2000),
+      hora: horaAgora(),
+      lida: false,
+      criadoEm: serverTimestamp()
+    });
+    lote.update(doc(db, 'chats', s.uid), {
+      ultimaMensagem: limpo.slice(0, 200),
+      ultimaHora: serverTimestamp(),
+      naoLidasGerente: increment(1)
+    });
+    await lote.commit();
+  }
+
+  // Resposta do gerente (ou admin) na conversa aberta: fica "não lida" para o cliente
+  async responder(texto: string) {
+    const limpo = texto.trim();
+    const chatId = this.conversaAtiva;
+    if (!limpo || !chatId) return;
+    const lote = writeBatch(db);
+    lote.set(doc(collection(db, 'chats', chatId, 'mensagens')), {
+      de: 'gerente',
+      texto: limpo.slice(0, 2000),
+      hora: horaAgora(),
+      lida: false,
+      criadoEm: serverTimestamp()
+    });
+    lote.update(doc(db, 'chats', chatId), {
+      ultimaMensagem: limpo.slice(0, 200),
+      ultimaHora: serverTimestamp(),
+      naoLidasCliente: increment(1)
+    });
+    await lote.commit();
+  }
+
+  // Marca como lidas as mensagens que chegaram para quem abriu a conversa
+  async lerMensagens(para: 'cliente' | 'gerente') {
+    const chatId = this.conversaAtiva;
+    if (!chatId) return;
+    const remetente = para === 'cliente' ? 'gerente' : 'cliente';
+    const pendentes = this.mensagens.filter((m) => m.de === remetente && m.lida === false);
+    const contador = para === 'cliente' ? this.meuChatNaoLidas : (this.conversas.find((c) => c.id === chatId)?.naoLidasGerente ?? 0);
+    if (!pendentes.length && !contador) return;
+    try {
+      const lote = writeBatch(db);
+      for (const m of pendentes) lote.update(doc(db, 'chats', chatId, 'mensagens', m.id), { lida: true });
+      lote.update(doc(db, 'chats', chatId), para === 'cliente' ? { naoLidasCliente: 0 } : { naoLidasGerente: 0 });
+      await lote.commit();
+    } catch {
+      // sem conexão: tenta de novo na próxima mensagem
+    }
+    if (para === 'cliente') {
+      for (const n of this.notificacoes) if (n.tipo === 'mensagem') n.lida = true;
+      this.salvarNotificacoes();
+    }
   }
 }
 

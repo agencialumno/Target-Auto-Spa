@@ -3,29 +3,32 @@
   import { authStore } from '$lib/auth.svelte';
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
-  import { getServico, brl, angulos360 } from '$lib/mock';
+  import { angulos360 } from '$lib/mock';
+  import { getServico } from '$lib/catalogo.svelte';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { chaveData } from '$lib/agenda';
   import { dataCurta } from '$lib/formato';
 
   const hoje = chaveData(new Date());
 
+  const ehInsulfilm = (a: Agendamento) =>
+    a.itens.some((i) => getServico(i.servicoId)?.categoria === 'insulfilm');
+
   // O insulfilm é feito pelo profissional externo, então não entra na agenda do gerente
-  const doGerente = $derived(app.agendamentos.filter((a) => !a.servicos.includes('insulfilm')));
+  const doGerente = $derived(app.agendamentos.filter((a) => !ehInsulfilm(a)));
 
   const ordenar = (lista: Agendamento[]) =>
-    [...lista].sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+    [...lista].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
 
-  const abertos = $derived(ordenar(doGerente.filter((a) => a.status !== 'finalizado')));
-  const concluidos = $derived(ordenar(doGerente.filter((a) => a.status === 'finalizado')));
-  const qtdInsulfilm = $derived(
-    app.agendamentos.filter((a) => a.servicos.includes('insulfilm')).length
+  const abertos = $derived(
+    ordenar(doGerente.filter((a) => a.status === 'agendado' || a.status === 'em_andamento'))
   );
+  const concluidos = $derived(
+    ordenar(doGerente.filter((a) => a.status === 'finalizado' || a.status === 'cancelado'))
+  );
+  const qtdInsulfilm = $derived(app.agendamentos.filter(ehInsulfilm).length);
 
-  const nomes = (a: Agendamento) =>
-    a.servicos
-      .map((id) => getServico(id)?.nome)
-      .filter(Boolean)
-      .join(' + ');
+  const nomes = (a: Agendamento) => nomesItens(a.itens);
 </script>
 
 {#snippet cartao(a: Agendamento)}
@@ -34,7 +37,8 @@
     <span class="textos">
       <strong>{nomes(a)}</strong>
       <small>
-        {a.data === hoje ? 'Hoje' : dataCurta(a.data)} · {a.placa ?? '-'} · {brl(a.total)}
+        {a.data === hoje ? 'Hoje' : dataCurta(a.data)} · {a.veiculo.placa || '-'} · {brlCentavos(a.total)}
+        {#if a.funcionarioNome}· {a.funcionarioNome}{/if}
       </small>
       <span class="rodape">
         <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
@@ -61,7 +65,7 @@
       />
     </div>
     <h1>Agenda do <em>dia</em></h1>
-    <p>Residencial Exemplo</p>
+    <p>{app.condominioNome || 'Seu condomínio'}</p>
   </header>
 
   <section class="folha corpo">
@@ -69,7 +73,7 @@
 
     {#if doGerente.length === 0}
       <p class="vazio">
-        Nenhum agendamento ainda. Entre como cliente, agende um serviço e volte aqui.
+        Nenhum agendamento no seu condomínio ainda.
       </p>
     {/if}
 
@@ -172,7 +176,7 @@
     color: var(--teal-700);
   }
 
-  .selo-status.em-atendimento {
+  .selo-status.em_andamento {
     background: var(--aviso-fundo);
     color: var(--aviso-texto);
   }

@@ -2,6 +2,7 @@
     import { goto } from "$app/navigation";
     import logo from "$lib/assets/logo.png";
     import { authStore } from "$lib/auth.svelte";
+    import { rotaInicial } from "$lib/rotas";
     import PainelDepuracao from "$lib/components/PainelDepuracao.svelte";
     import Icone from "$lib/components/Icone.svelte";
 
@@ -32,16 +33,8 @@
         if (mostrarSucesso) return;
         if (authStore.carregando || !authStore.usuario || !authStore.perfil)
             return;
-        const p = authStore.perfil;
-        if (p.role === "cliente") {
-            goto(p.condominioId ? "/cliente" : "/entrar-condominio");
-        } else if (p.role === "gerente") {
-            goto("/gerente");
-        } else if (p.role === "admin") {
-            goto("/admin");
-        } else if (p.role === "insulfilm") {
-            goto("/insulfilm");
-        }
+        const rota = rotaInicial(authStore.perfil);
+        if (rota) goto(rota);
     });
 
     async function enviar() {

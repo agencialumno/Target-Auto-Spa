@@ -7,7 +7,13 @@ import { fileURLToPath } from 'node:url';
 // Testes de componente usam `// @vitest-environment jsdom` no topo do arquivo.
 export default defineConfig({
   plugins: [svelte(), svelteTesting()],
-  resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)) } },
+  resolve: {
+    alias: {
+      $lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
+      // O SvelteKit não existe no Vitest: os testes de componente trocam estes módulos por mocks
+      '$app': fileURLToPath(new URL('./src/lib/testes/app', import.meta.url))
+    }
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts']

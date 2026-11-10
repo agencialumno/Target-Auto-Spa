@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icone from './Icone.svelte';
   import { reserva } from '$lib/reserva.svelte';
-  import { upsellPor, getServico, brl, type Servico } from '$lib/mock';
+  import { upsellPor, brl, type Servico } from '$lib/mock';
+  import { getServico, contratavel } from '$lib/catalogo.svelte';
 
   let {
     aberto,
@@ -12,7 +13,7 @@
   const sugestoes = $derived(
     (upsellPor[reserva.principalId ?? ''] ?? [])
       .map(getServico)
-      .filter((s): s is Servico => !!s)
+      .filter((s): s is Servico => !!s && contratavel(s))
   );
 </script>
 

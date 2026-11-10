@@ -3,6 +3,7 @@
   import { app, type Agendamento, type Fase } from '$lib/app.svelte';
   import { angulos360 } from '$lib/mock';
   import { fotoComMarcaDagua, carimboDataHora } from '$lib/foto';
+  import { chaveFoto } from '$lib/agendamentos';
 
   let { ag, editavel = false }: { ag: Agendamento; editavel?: boolean } = $props();
 
@@ -37,12 +38,15 @@
     try {
       const imagem = await fotoComMarcaDagua(arquivo, [
         carimboDataHora(),
-        `Placa ${ag.placa ?? '-'} · ${rotuloFase(faseAtual)}`,
+        `Placa ${ag.veiculo.placa || '-'} · ${rotuloFase(faseAtual)}`,
         `${angulo} · Target Auto Spa`
       ]);
-      app.salvarFoto(ag.id, faseAtual, angulo, imagem);
-    } catch {
-      erro = 'Não foi possível processar a foto. Tente de novo.';
+      await app.salvarFoto(ag.id, faseAtual, angulo, imagem);
+    } catch (e) {
+      const codigo = (e as { code?: string })?.code;
+      erro = codigo
+        ? `Não foi possível enviar a foto (${codigo}). Tente de novo.`
+        : 'Não foi possível processar a foto. Tente de novo.';
     } finally {
       processando = null;
     }
@@ -60,8 +64,12 @@
 
 <div class="fotos">
   {#each angulos360 as angulo}
-    {@const imagem = ag.fotos?.[`${fase}:${angulo}`]}
-    {#if imagem}
+    {@const registro = ag.checklist.fotos[chaveFoto(fase, angulo)]}
+    {@const imagem = registro ? app.urlFoto(registro.path) : undefined}
+    {#if registro}
+      {#if !imagem}
+        <div class="foto vazia"><small>{angulo}</small></div>
+      {:else}
       <div class="foto tem">
         <button class="ver" aria-label={`Ampliar ${angulo}`} onclick={() => (zoom = imagem)}>
           <img src={imagem} alt={`${rotuloFase(fase)} - ${angulo}`} />
@@ -73,6 +81,7 @@
           </button>
         {/if}
       </div>
+      {/if}
     {:else if editavel}
       <button class="foto vazia editar" onclick={() => abrir(angulo)} disabled={processando !== null}>
         <Icone nome="camera" tamanho={20} />

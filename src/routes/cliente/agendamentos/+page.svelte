@@ -1,17 +1,17 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
-  import { getServico, brl } from '$lib/mock';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
 
-  const andamento = $derived(app.agendamentos.filter((a) => a.status !== 'finalizado'));
-  const historico = $derived(app.agendamentos.filter((a) => a.status === 'finalizado'));
+  const andamento = $derived(
+    app.agendamentos.filter((a) => a.status === 'agendado' || a.status === 'em_andamento')
+  );
+  const historico = $derived(
+    app.agendamentos.filter((a) => a.status === 'finalizado' || a.status === 'cancelado')
+  );
 
-  const nomes = (a: Agendamento) =>
-    a.servicos
-      .map((id) => getServico(id)?.nome)
-      .filter(Boolean)
-      .join(' + ');
+  const nomes = (a: Agendamento) => nomesItens(a.itens);
 </script>
 
 {#snippet cartao(a: Agendamento)}
@@ -21,7 +21,7 @@
       <small class="quando">{dataCurta(a.data)} às {a.hora}</small>
       <span class="rodape">
         <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
-        <b>{brl(a.total)}</b>
+        <b>{brlCentavos(a.total)}</b>
       </span>
     </span>
     <Icone nome="chevron" tamanho={20} />
@@ -112,7 +112,7 @@
     color: var(--teal-700);
   }
 
-  .selo-status.em-atendimento {
+  .selo-status.em_andamento {
     background: var(--aviso-fundo);
     color: var(--aviso-texto);
   }

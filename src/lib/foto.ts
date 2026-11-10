@@ -10,13 +10,13 @@ export function carimboDataHora(d = new Date()) {
 
 /**
  * Recebe a foto tirada, reduz o tamanho e desenha uma faixa escura embaixo
- * com as linhas de texto (data/hora, placa, etapa). Devolve um JPEG em base64.
+ * com as linhas de texto (data/hora, placa, etapa). Devolve um JPEG (Blob) para enviar ao Storage.
  */
 export async function fotoComMarcaDagua(
   arquivo: File,
   linhas: string[],
-  ladoMax = 720
-): Promise<string> {
+  ladoMax = 1280
+): Promise<Blob> {
   const url = URL.createObjectURL(arquivo);
   try {
     const img = await new Promise<HTMLImageElement>((ok, erro) => {
@@ -53,7 +53,9 @@ export async function fotoComMarcaDagua(
       ctx.fillText(linha, pad, h - alturaBarra + pad + i * linhaAltura, w - pad * 2);
     });
 
-    return canvas.toDataURL('image/jpeg', 0.6);
+    return await new Promise<Blob>((ok, erro) =>
+      canvas.toBlob((b) => (b ? ok(b) : erro(new Error('Não foi possível gerar o JPEG'))), 'image/jpeg', 0.7)
+    );
   } finally {
     URL.revokeObjectURL(url);
   }

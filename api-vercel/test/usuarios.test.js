@@ -199,3 +199,15 @@ test('definirCondominio: valida usuário, papel do alvo e existência do condom�
   assert.equal(await status(definirCondominio(d, A, { uid: 'i1', condominioId: 'c1' })), 400, 'insulfilm não tem condomínio');
   assert.equal(await status(definirCondominio(d, A, { uid: 'c1', condominioId: 'inexistente' })), 404);
 });
+
+test('criar: funcionário não pertence a condomínio, mesmo se vier um no corpo', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  const { uid } = await criarUsuario(d, bearer('a1'), {
+    ...corpoValido,
+    email: 'f@ex.com',
+    role: 'funcionario',
+    condominioId: 'c1'
+  });
+  assert.equal(d.docs.get(`users/${uid}`).role, 'funcionario');
+  assert.equal(d.docs.get(`users/${uid}`).condominioId, null);
+});

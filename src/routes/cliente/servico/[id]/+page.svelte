@@ -3,7 +3,8 @@
     import { goto } from "$app/navigation";
     import Icone from "$lib/components/Icone.svelte";
     import ModalUpsell from "$lib/components/ModalUpsell.svelte";
-    import { getServico, avaliacoes, brl } from "$lib/mock";
+    import { getServico, contratavel } from "$lib/catalogo.svelte";
+    import { brl } from "$lib/mock";
     import { reserva } from "$lib/reserva.svelte";
 
     const servico = $derived(getServico(page.params.id ?? ""));
@@ -108,21 +109,10 @@
                 {/each}
             </ul>
 
-            <button class="btn-primario agendar" onclick={agendar}>
-                Agendar · {brl(s.preco)}
+            <button class="btn-primario agendar" onclick={agendar} disabled={!contratavel(s)}>
+                {contratavel(s) ? `Agendar · ${brl(s.preco)}` : "Indisponível no momento"}
             </button>
 
-            <div class="secao-topo">
-                <h2>Avaliações</h2>
-                <span class="nota"><Icone nome="star" tamanho={16} /> 5,0</span>
-            </div>
-            {#each avaliacoes as a}
-                <div class="aval card">
-                    <strong>{a.nome}</strong>
-                    <p>{a.texto}</p>
-                </div>
-            {/each}
-            <p class="demo">Avaliações de exemplo para a demonstração.</p>
         </section>
 
         <ModalUpsell

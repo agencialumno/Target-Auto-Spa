@@ -6,15 +6,29 @@
   let texto = $state('');
   let fim = $state<HTMLDivElement>();
 
-  function enviar() {
-    if (!texto.trim()) return;
-    app.responder(texto);
+  let erro = $state('');
+
+  async function enviar() {
+    const t = texto;
+    if (!t.trim()) return;
     texto = '';
+    erro = '';
+    try {
+      await app.responder(t);
+    } catch (e) {
+      texto = t;
+      erro = `Não foi possível enviar (${(e as { code?: string })?.code ?? 'erro'}).`;
+    }
   }
+
+  const conversa = $derived(app.conversas.find((c) => c.id === app.conversaAtiva));
+
+  // Sai da conversa ao deixar a tela (para não ficar ouvindo mensagens em segundo plano)
+  $effect(() => () => app.fecharConversa());
 
   $effect(() => {
     app.mensagens.length;
-    untrack(() => app.lerMensagens('gerente'));
+    if (app.conversaAtiva) untrack(() => app.lerMensagens('gerente'));
     tick().then(() => fim?.scrollIntoView({ block: 'end' }));
   });
 </script>
@@ -22,40 +36,105 @@
 <div class="pagina">
   <header class="cab">
     <div class="cab-topo">
-      <a class="btn-voltar" href="/gerente" aria-label="Voltar">
-        <Icone nome="back" />
-      </a>
+      {#if app.conversaAtiva}
+        <button type="button" class="btn-voltar" aria-label="Voltar às conversas" onclick={() => app.fecharConversa()}>
+          <Icone nome="back" />
+        </button>
+      {:else}
+        <a class="btn-voltar" href="/gerente" aria-label="Voltar">
+          <Icone nome="back" />
+        </a>
+      {/if}
     </div>
-    <h1>Conversa com o <em>cliente</em></h1>
+    <h1>
+      {#if app.conversaAtiva}Conversa com <em>{conversa?.clienteNome || 'o cliente'}</em>{:else}Conversas dos <em>clientes</em>{/if}
+    </h1>
   </header>
 
   <section class="folha conversa">
     <div class="folha-alca"></div>
 
-    <div class="mensagens">
-      {#each app.mensagens as m}
-        <div class={`bolha ${m.de}`}>
-          <p>{m.texto}</p>
-          <small>{m.hora}</small>
-        </div>
-      {/each}
-      <div bind:this={fim}></div>
-    </div>
+    {#if !app.conversaAtiva}
+      {#if app.conversas.length === 0}
+        <p class="demo">Nenhum cliente enviou mensagem ainda.</p>
+      {/if}
+      <div class="lista-conversas">
+        {#each app.conversas as c (c.id)}
+          <button type="button" class="conversa-item" onclick={() => app.abrirConversa(c.id)}>
+            <strong>{c.clienteNome || 'Cliente'}</strong>
+            <small>{c.ultimaMensagem}</small>
+            {#if c.naoLidasGerente > 0}<b class="novas">{c.naoLidasGerente}</b>{/if}
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <div class="mensagens">
+        {#each app.mensagens as m (m.id)}
+          <div class={`bolha ${m.de}`}>
+            <p>{m.texto}</p>
+            <small>{m.hora}</small>
+          </div>
+        {/each}
+        <div bind:this={fim}></div>
+      </div>
+      {#if erro}<p class="demo" role="alert">{erro}</p>{/if}
+    {/if}
   </section>
 
-  <div class="digitar">
-    <input
-      placeholder="Responder ao cliente"
-      bind:value={texto}
-      onkeydown={(e) => e.key === 'Enter' && enviar()}
-    />
-    <button class="enviar" aria-label="Enviar" onclick={enviar}>
-      <Icone nome="send" tamanho={20} />
-    </button>
-  </div>
+  {#if app.conversaAtiva}
+    <div class="digitar">
+      <input
+        placeholder="Responder ao cliente"
+        bind:value={texto}
+        onkeydown={(e) => e.key === 'Enter' && enviar()}
+      />
+      <button class="enviar" aria-label="Enviar" onclick={enviar}>
+        <Icone nome="send" tamanho={20} />
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
+  .lista-conversas {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .conversa-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+    padding: 12px 44px 12px 14px;
+    border-radius: 14px;
+    background: var(--card);
+    border: 1px solid var(--card-borda);
+  }
+
+  .conversa-item small {
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .novas {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 11px;
+    text-align: center;
+    font-size: 0.75rem;
+    background: var(--gold-500);
+    color: var(--navy-900);
+  }
+
   .conversa {
     padding-bottom: calc(96px + var(--safe-bottom));
   }

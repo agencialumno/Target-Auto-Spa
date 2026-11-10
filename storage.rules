@@ -1,0 +1,54 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Fotos do checklist: agendamentos/{agendamentoId}/checklist/{antes|depois}_{angulo}.jpg
+    match /agendamentos/{agendamentoId}/checklist/{arquivo} {
+      function agendamento() {
+        return firestore.get(/databases/(default)/documents/agendamentos/$(agendamentoId)).data;
+      }
+
+      function perfil() {
+        return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+      }
+
+      function souAdmin() {
+        return perfil().role == 'admin';
+      }
+
+      function souGerenteDoCondominio() {
+        return perfil().role == 'gerente'
+          && perfil().condominioId != null
+          && perfil().condominioId == agendamento().condominioId;
+      }
+
+      function souFuncionarioAtribuido() {
+        return perfil().role == 'funcionario'
+          && agendamento().get('funcionarioId', null) == request.auth.uid
+          && agendamento().status in ['agendado', 'em_andamento'];
+      }
+
+      // Cliente dono, funcionário atribuído, gerente do condomínio e admin enxergam
+      allow read: if request.auth != null && (
+        agendamento().clienteId == request.auth.uid
+        || agendamento().get('funcionarioId', null) == request.auth.uid
+        || souGerenteDoCondominio()
+        || souAdmin()
+      );
+
+      // Só JPEG de até 5 MB, com nome no padrão, por quem pode trabalhar no atendimento
+      allow create, update: if request.auth != null
+        && arquivo.matches('(antes|depois)_[a-z0-9_]+[.]jpg')
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && (souAdmin() || souGerenteDoCondominio() || souFuncionarioAtribuido());
+
+      allow delete: if request.auth != null && souAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

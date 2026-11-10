@@ -2,9 +2,16 @@
   import Icone from '$lib/components/Icone.svelte';
   import { authStore } from '$lib/auth.svelte';
   import { app, rotuloStatus, ordemStatus } from '$lib/app.svelte';
-  import { servicos, planos, getServico, brl } from '$lib/mock';
-  import { niveis } from '$lib/niveis';
+  import { brl } from '$lib/mock';
+  import {
+    servicos,
+    alternarServico,
+    publicarCatalogoInicial,
+    salvarPrecoServico
+  } from '$lib/catalogo.svelte';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
+  import { getServico } from '$lib/catalogo.svelte';
   import GerenciarUsuarios from '$lib/components/GerenciarUsuarios.svelte';
   import GerenciarCondominios from '$lib/components/GerenciarCondominios.svelte';
 
@@ -22,14 +29,50 @@
   let aba = $state<Aba>('resumo');
 
   const total = $derived(app.agendamentos.length);
-  const ticket = $derived(total ? app.receita / total : 0);
+  const finalizados = $derived(app.agendamentos.filter((a) => a.status === 'finalizado').length);
+  const ticket = $derived(finalizados ? app.receita / finalizados : 0);
   const porStatus = (st: string) => app.agendamentos.filter((a) => a.status === st).length;
 
-  const nomes = (ids: string[]) =>
-    ids
-      .map((id) => getServico(id)?.nome)
-      .filter(Boolean)
-      .join(' + ');
+  const nomes = nomesItens;
+  const ehInsulfilm = (a: (typeof app.agendamentos)[number]) =>
+    a.itens.some((i) => getServico(i.servicoId)?.categoria === 'insulfilm');
+
+  // ---- Preços (catálogo no Firestore) ----
+  let msgPrecos = $state('');
+  let editando = $state<string | null>(null);
+  let valorEdicao = $state('');
+  let ocupado = $state(false);
+  const naoPublicados = $derived(servicos.filter((s) => !s.publicado).length);
+
+  async function tentar(fn: () => Promise<unknown>, ok: string) {
+    ocupado = true;
+    msgPrecos = '';
+    try {
+      await fn();
+      msgPrecos = ok;
+    } catch (e) {
+      msgPrecos = `Não foi possível salvar (${(e as { code?: string })?.code ?? (e as Error)?.message ?? 'erro'}).`;
+    } finally {
+      ocupado = false;
+    }
+  }
+
+  const publicar = () =>
+    tentar(async () => {
+      const n = await publicarCatalogoInicial();
+      msgPrecos = `${n} serviço(s) publicado(s).`;
+    }, '');
+
+  function editar(id: string, precoCentavos: number) {
+    editando = id;
+    valorEdicao = (precoCentavos / 100).toFixed(2).replace('.', ',');
+  }
+
+  async function salvarPreco(id: string) {
+    const centavos = Math.round(Number(valorEdicao.replace(/\./g, '').replace(',', '.')) * 100);
+    await tentar(() => salvarPrecoServico(id, centavos), 'Preço salvo.');
+    if (!msgPrecos.startsWith('Não')) editando = null;
+  }
 </script>
 
 <div class="pagina">
@@ -63,7 +106,7 @@
       <div class="kpis">
         <div class="kpi card">
           <small>Receita</small>
-          <strong>{brl(app.receita)}</strong>
+          <strong>{brlCentavos(app.receita)}</strong>
         </div>
         <div class="kpi card">
           <small>Agendamentos</small>
@@ -71,7 +114,7 @@
         </div>
         <div class="kpi card">
           <small>Ticket médio</small>
-          <strong>{brl(ticket)}</strong>
+          <strong>{brlCentavos(ticket)}</strong>
         </div>
         <div class="kpi card">
           <small>Nota média</small>
@@ -80,10 +123,6 @@
         <div class="kpi card">
           <small>NPS</small>
           <strong>{app.nps === null ? '-' : app.nps}</strong>
-        </div>
-        <div class="kpi card">
-          <small>Nível do cliente</small>
-          <strong>{app.nivel.nome}</strong>
         </div>
       </div>
 
@@ -96,10 +135,7 @@
           </div>
         {/each}
       </div>
-      <p class="nota">
-        Dados da demonstração, salvos neste aparelho. Com o backend, o painel soma todos os
-        condomínios e clientes.
-      </p>
+      <p class="nota">Receita e ticket médio consideram só atendimentos finalizados.</p>
     {:else if aba === 'agendamentos'}
       {#if app.agendamentos.length === 0}
         <p class="vazio">Nenhum agendamento ainda.</p>
@@ -108,13 +144,13 @@
         {#each app.agendamentos as a (a.id)}
           <a class="item card" href={`/admin/agendamentos/${a.id}`}>
             <span class="textos">
-              <strong>{nomes(a.servicos)}</strong>
+              <strong>{nomes(a.itens)}</strong>
               <small>
-                {dataCurta(a.data)} às {a.hora} · {a.placa ?? '-'} · {brl(a.total)}
+                {dataCurta(a.data)} às {a.hora} · {a.veiculo.placa || '-'} · {brlCentavos(a.total)}
               </small>
               <span class="tags">
                 <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
-                {#if a.servicos.includes('insulfilm')}
+                {#if ehInsulfilm(a)}
                   <span class="selo-status ext">Profissional externo</span>
                 {/if}
               </span>
@@ -125,50 +161,45 @@
       </div>
     {:else if aba === 'precos'}
       <h2>Serviços</h2>
+      {#if naoPublicados > 0}
+        <div class="card aviso-pub">
+          <p>{naoPublicados} serviço(s) ainda não estão no Firestore e não podem ser contratados.</p>
+          <button class="btn-primario" onclick={publicar} disabled={ocupado}>Publicar catálogo inicial</button>
+        </div>
+      {/if}
+      {#if msgPrecos}<p class="nota" role="status">{msgPrecos}</p>{/if}
       <div class="tabela card">
-        {#each servicos as s}
+        {#each servicos as s (s.id)}
           <div class="linha-preco">
             <span>
               <strong>{s.nome}</strong>
               <small>
-                {s.duracao} min{s.avulso ? ' · agenda separada' : ''}{s.garantia
-                  ? ` · garantia ${s.garantia.split(',')[0]}`
-                  : ''}
+                {s.duracao} min{s.avulso ? ' · agenda separada' : ''}{s.publicado
+                  ? s.ativo === false ? ' · desativado' : ''
+                  : ' · não publicado'}
               </small>
             </span>
-            <b>{brl(s.preco)}</b>
-          </div>
-        {/each}
-      </div>
-
-      <h2>Assinatura</h2>
-      <div class="tabela card">
-        {#each planos as p}
-          <div class="linha-preco">
-            <span>
-              <strong>{p.nome}</strong>
-              <small>{p.desconto}% de desconto nos demais serviços</small>
-            </span>
-            <b>{brl(p.preco)}/mês</b>
-          </div>
-        {/each}
-      </div>
-
-      <h2>Níveis de cliente</h2>
-      <div class="tabela card">
-        {#each niveis as n}
-          <div class="linha-preco">
-            <span>
-              <strong>{n.nome}</strong>
-              <small>{n.min === 0 ? 'Início' : `a partir de ${brl(n.min)} em 90 dias`}</small>
-            </span>
-            <b>{n.desconto}%</b>
+            {#if editando === s.id}
+              <span class="edicao">
+                <input inputmode="decimal" bind:value={valorEdicao} aria-label={`Novo preço de ${s.nome}`} />
+                <button onclick={() => salvarPreco(s.id)} disabled={ocupado}>Salvar</button>
+                <button onclick={() => (editando = null)}>Cancelar</button>
+              </span>
+            {:else}
+              <b>{brl(s.preco)}</b>
+              {#if s.publicado}
+                <button class="mini" onclick={() => editar(s.id, s.precoCentavos)}>Editar</button>
+                <button class="mini" onclick={() => tentar(() => alternarServico(s.id, s.ativo === false), 'Salvo.')} disabled={ocupado}>
+                  {s.ativo === false ? 'Ativar' : 'Desativar'}
+                </button>
+              {/if}
+            {/if}
           </div>
         {/each}
       </div>
       <p class="nota">
-        Tabela de venda (valores de exemplo). Os preços ficam em <code>src/lib/mock.ts</code>. A
-        edição pelo painel entra junto com o backend.
+        O preço do Firestore é o que vale: os agendamentos gravam o preço do serviço no momento da
+        contratação.
       </p>
     {:else}
       {#if app.avaliados.length === 0}
@@ -177,8 +208,10 @@
       <div class="lista">
         {#each app.avaliados as a (a.id)}
           <div class="card aval">
-            <strong>{nomes(a.servicos)}</strong>
-            <small>Nota {a.avaliacao?.nota}/5 · Indicação {a.avaliacao?.nps}/10</small>
+            <strong>{nomes(a.itens)}</strong>
+            <small>
+              Nota {a.avaliacao?.nota}/5{#if typeof a.avaliacao?.nps === 'number'} · Indicação {a.avaliacao?.nps}/10{/if}
+            </small>
             {#if a.avaliacao?.comentario}
               <p>“{a.avaliacao.comentario}”</p>
             {/if}
@@ -190,6 +223,38 @@
 </div>
 
 <style>
+  .aviso-pub {
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 0.9rem;
+  }
+
+  .edicao {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .edicao input {
+    width: 90px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--card-borda);
+    font: inherit;
+  }
+
+  .mini {
+    margin-left: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--card-borda);
+    background: var(--white);
+    font-size: 0.72rem;
+  }
+
   .corpo {
     padding-bottom: calc(32px + var(--safe-bottom));
   }
@@ -285,7 +350,7 @@
     color: var(--teal-700);
   }
 
-  .selo-status.em-atendimento {
+  .selo-status.em_andamento {
     background: var(--aviso-fundo);
     color: var(--aviso-texto);
   }

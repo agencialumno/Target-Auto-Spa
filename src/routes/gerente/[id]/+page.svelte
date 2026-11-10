@@ -3,4 +3,4 @@
   import DetalheOperacao from '$lib/components/DetalheOperacao.svelte';
 </script>
 
-<DetalheOperacao id={page.params.id ?? ''} voltar="/gerente" editavel />
+<DetalheOperacao id={page.params.id ?? ''} voltar="/gerente" editavel atribuir />

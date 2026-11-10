@@ -20,15 +20,6 @@ export function proximosDias(n: number, inicio = new Date()): Date[] {
   });
 }
 
-// Horários "já ocupados" de mentira, só para a demo (fim já inclui o intervalo)
-function ocupadosMock(chave: string) {
-  const h = [...chave].reduce((soma, c) => soma + c.charCodeAt(0), 0);
-  return [1, 2, 3].map((i) => {
-    const inicio = ABERTURA + ((h * i) % 12) * 45;
-    return { inicio, fim: inicio + 45 };
-  });
-}
-
 /**
  * Horários livres de lavagem/estética.
  * Cada atendimento ocupa: duração total + intervalo de 15 min.
@@ -40,16 +31,13 @@ export function horariosLavagem(
   agora = new Date()
 ): string[] {
   const slot = duracaoTotal + BUFFER_MIN;
-  const ocupados = ocupadosMock(chaveData(data));
   const ehHoje = chaveData(agora) === chaveData(data);
   const agoraMin = agora.getHours() * 60 + agora.getMinutes();
   const livres: string[] = [];
 
   for (let t = ABERTURA; t + duracaoTotal <= FECHAMENTO; t += slot) {
     if (ehHoje && t <= agoraMin) continue;
-    const fim = t + slot;
-    const conflita = ocupados.some((o) => t < o.fim && fim > o.inicio);
-    if (!conflita) livres.push(hhmm(t));
+    livres.push(hhmm(t));
   }
   return livres;
 }

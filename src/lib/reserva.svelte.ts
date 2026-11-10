@@ -1,5 +1,4 @@
 import { getServico, BUFFER_MIN, type Servico } from './mock';
-import { app } from './app.svelte';
 
 class Reserva {
   principalId = $state<string | null>(null);
@@ -32,20 +31,10 @@ class Reserva {
     return this.itens.reduce((soma, s) => soma + s.preco, 0);
   }
 
-  // Desconto do nível ou da assinatura: vale o maior, sem acumular
-  get descontoPct() {
-    return Math.max(app.nivel.desconto, app.plano?.desconto ?? 0);
-  }
-
-  get valorDesconto() {
-    const base = this.itens
-      .filter((s) => !s.semDesconto)
-      .reduce((soma, s) => soma + s.preco, 0);
-    return Math.round(base * this.descontoPct) / 100;
-  }
-
+  // Sem desconto por enquanto: o total do agendamento é a soma exata dos preços do catálogo
+  // (o firestore.rules exige total == soma dos itens). Desconto de nível/plano precisa de servidor.
   get total() {
-    return this.subtotal - this.valorDesconto;
+    return this.itens.reduce((soma, s) => soma + s.precoCentavos, 0) / 100;
   }
 
   escolher(id: string) {

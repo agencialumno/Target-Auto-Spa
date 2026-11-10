@@ -14,7 +14,7 @@
     "icones": "node scripts/preparar-imagens.mjs && tauri icon assets-origem/icone-1024.png && node scripts/achatar-icones-ios.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rules": "npx --yes firebase-tools@14.27.0 emulators:exec --only firestore --project demo-target-auto-spa \"vitest run --config vitest.rules.config.ts\""
+    "test:rules": "npx --yes firebase-tools@14.27.0 emulators:exec --only firestore,storage --project demo-target-auto-spa \"vitest run --config vitest.rules.config.ts\""
   },
   "license": "MIT",
   "dependencies": {

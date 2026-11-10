@@ -2,32 +2,41 @@
   import Icone from './Icone.svelte';
   import Checklist360 from './Checklist360.svelte';
   import { app, ordemStatus, rotuloStatus } from '$lib/app.svelte';
-  import { getServico, brl } from '$lib/mock';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataExtensa } from '$lib/formato';
 
   let {
     id,
     voltar,
-    editavel = false
-  }: { id: string; voltar: string; editavel?: boolean } = $props();
+    editavel = false,
+    atribuir = false
+  }: { id: string; voltar: string; editavel?: boolean; atribuir?: boolean } = $props();
 
   const ag = $derived(app.agendamentos.find((a) => a.id === id));
   const idx = $derived(ag ? ordemStatus.indexOf(ag.status) : 0);
-
-  const nomes = $derived(
-    ag
-      ? ag.servicos
-          .map((s) => getServico(s)?.nome)
-          .filter(Boolean)
-          .join(' + ')
-      : ''
-  );
+  const nomes = $derived(ag ? nomesItens(ag.itens) : '');
+  const emAberto = $derived(!!ag && (ag.status === 'agendado' || ag.status === 'em_andamento'));
 
   let aviso = $state('');
+  let enviando = $state(false);
 
-  function avancar() {
+  async function avancar() {
+    if (!ag || enviando) return;
+    enviando = true;
+    aviso = (await app.avancarComRegras(ag.id)) ?? '';
+    enviando = false;
+  }
+
+  async function escolherFuncionario(e: Event) {
     if (!ag) return;
-    aviso = app.avancarComRegras(ag.id) ?? '';
+    const uid = (e.currentTarget as HTMLSelectElement).value;
+    const f = app.funcionarios.find((x) => x.uid === uid) ?? null;
+    try {
+      aviso = '';
+      await app.atribuirFuncionario(ag.id, f);
+    } catch (err) {
+      aviso = `Não foi possível atribuir (${(err as { code?: string })?.code ?? 'erro'}).`;
+    }
   }
 </script>
 
@@ -40,7 +49,7 @@
     </div>
     <h1>{ag ? nomes : 'Agendamento não encontrado'}</h1>
     {#if ag}
-      <p>{ag.cliente ?? 'Cliente'} · {ag.carro ?? 'Veículo'} · {ag.placa ?? '-'}</p>
+      <p>{ag.clienteNome || 'Cliente'} · {ag.veiculo.modelo || 'Veículo'} · {ag.veiculo.placa || '-'}</p>
     {/if}
   </header>
 
@@ -51,8 +60,24 @@
       <div class="card quando">
         <Icone nome="calendar" tamanho={18} />
         <span>{dataExtensa(ag.data)} às {ag.hora}</span>
-        <b>{brl(ag.total)}</b>
+        <b>{brlCentavos(ag.total)}</b>
       </div>
+
+      {#if atribuir}
+        <h2>Funcionário responsável</h2>
+        <select class="funcionario" value={ag.funcionarioId ?? ''} onchange={escolherFuncionario} disabled={!emAberto}>
+          <option value="">Sem funcionário atribuído</option>
+          {#each app.funcionarios as f (f.uid)}
+            <option value={f.uid}>{f.nome}</option>
+          {/each}
+        </select>
+      {:else if ag.funcionarioNome}
+        <p class="resp">Responsável: {ag.funcionarioNome}</p>
+      {/if}
+
+      {#if ag.status === 'cancelado'}
+        <p class="vazio">Este agendamento foi cancelado.</p>
+      {/if}
 
       <h2>Andamento</h2>
       <ol class="linha-tempo">
@@ -74,7 +99,7 @@
       {#if ag.avaliacao}
         <h2>Avaliação do cliente</h2>
         <div class="card aval">
-          <b>Nota {ag.avaliacao.nota}/5 · Indicação {ag.avaliacao.nps}/10</b>
+          <b>Nota {ag.avaliacao.nota}/5{#if typeof ag.avaliacao.nps === 'number'} · Indicação {ag.avaliacao.nps}/10{/if}</b>
           {#if ag.avaliacao.comentario}<p>“{ag.avaliacao.comentario}”</p>{/if}
         </div>
       {/if}
@@ -83,10 +108,10 @@
     {/if}
   </section>
 
-  {#if ag && editavel && ag.status !== 'finalizado'}
+  {#if ag && editavel && emAberto}
     <div class="cta">
       {#if aviso}<p class="aviso">{aviso}</p>{/if}
-      <button class="btn-primario" onclick={avancar}>
+      <button class="btn-primario" onclick={avancar} disabled={enviando}>
         {ag.status === 'agendado' ? 'Iniciar atendimento' : 'Finalizar serviço'}
       </button>
     </div>
@@ -176,6 +201,20 @@
   .aval p {
     margin-top: 4px;
     color: var(--texto-suave);
+  }
+
+  .funcionario {
+    width: 100%;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--card-borda);
+    font: inherit;
+    background: var(--white);
+  }
+
+  .resp {
+    color: var(--texto-suave);
+    font-size: 0.9rem;
   }
 
   .vazio {

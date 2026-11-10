@@ -2,17 +2,17 @@
   import Icone from '$lib/components/Icone.svelte';
   import { authStore } from '$lib/auth.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
-  import { brl } from '$lib/mock';
+  import { brlCentavos } from '$lib/agendamentos';
+  import { getServico } from '$lib/catalogo.svelte';
   import { dataCurta } from '$lib/formato';
 
+  // As regras do Firestore ainda não liberam a leitura para este papel (agenda não migrada):
+  // a lista fica vazia até existir a regra do insulfilm.
   const lista = $derived(
     app.agendamentos
-      .filter((a) => a.servicos.includes('insulfilm'))
-      .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora))
+      .filter((a: Agendamento) => a.itens.some((i) => getServico(i.servicoId)?.categoria === 'insulfilm'))
+      .sort((a, b) => a.inicio.getTime() - b.inicio.getTime())
   );
-
-  const rotuloBotao = (a: Agendamento) =>
-    a.status === 'agendado' ? 'Iniciar instalação' : 'Concluir instalação';
 </script>
 
 <div class="pagina">
@@ -35,10 +35,7 @@
     </p>
 
     {#if lista.length === 0}
-      <p class="vazio">
-        Nenhum agendamento de insulfilm ainda. Entre como cliente e agende com pelo menos 36 horas
-        de antecedência.
-      </p>
+      <p class="vazio">Nenhum agendamento de insulfilm para mostrar.</p>
     {/if}
 
     <div class="lista">
@@ -49,17 +46,14 @@
             <span class="textos">
               <strong>Insulfilm</strong>
               <small>
-                {dataCurta(a.data)} · {a.cliente ?? 'Cliente'} · {a.carro ?? 'Veículo'} ·
-                {a.placa ?? '-'}
+                {dataCurta(a.data)} · {a.clienteNome || 'Cliente'} · {a.veiculo.modelo || 'Veículo'} ·
+                {a.veiculo.placa || '-'}
               </small>
             </span>
-            <b>{brl(a.total)}</b>
+            <b>{brlCentavos(a.total)}</b>
           </div>
           <div class="rodape">
             <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
-            {#if a.status !== 'finalizado'}
-              <button class="acao" onclick={() => app.avancar(a.id)}>{rotuloBotao(a)}</button>
-            {/if}
           </div>
         </div>
       {/each}
@@ -146,7 +140,7 @@
     color: var(--teal-700);
   }
 
-  .selo-status.em-atendimento {
+  .selo-status.em_andamento {
     background: var(--aviso-fundo);
     color: var(--aviso-texto);
   }

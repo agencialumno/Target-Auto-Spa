@@ -4,35 +4,52 @@
   import BotaoChat from '$lib/components/BotaoChat.svelte';
   import Checklist360 from '$lib/components/Checklist360.svelte';
   import { app, ordemStatus, rotuloStatus } from '$lib/app.svelte';
-  import { getServico, brl } from '$lib/mock';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataExtensa } from '$lib/formato';
 
   const ag = $derived(app.agendamentos.find((a) => a.id === page.params.id));
 
   const idx = $derived(ag ? ordemStatus.indexOf(ag.status) : 0);
 
-  const nomes = $derived(
-    ag
-      ? ag.servicos
-          .map((id) => getServico(id)?.nome)
-          .filter(Boolean)
-          .join(' + ')
-      : ''
-  );
+  const nomes = $derived(ag ? nomesItens(ag.itens) : '');
 
-  const descricaoStatus = $derived({
+  const descricaoStatus = $derived<Record<string, string>>({
     agendado: ag ? `Confirmado para ${dataExtensa(ag.data)} às ${ag.hora}` : '',
-    'em-atendimento': 'Nossa equipe está cuidando do seu carro',
+    em_andamento: 'Nossa equipe está cuidando do seu carro',
     finalizado: 'Serviço concluído. Aproveite!'
   });
 
   let nota = $state(0);
   let nps = $state<number | null>(null);
   let comentario = $state('');
+  let erro = $state('');
+  let enviando = $state(false);
+  let cancelando = $state(false);
 
-  function enviarAvaliacao() {
-    if (!ag || nota === 0 || nps === null) return;
-    app.avaliar(ag.id, { nota, nps, comentario: comentario.trim() });
+  async function enviarAvaliacao() {
+    if (!ag || nota === 0 || nps === null || enviando) return;
+    enviando = true;
+    erro = '';
+    try {
+      await app.avaliar(ag.id, { nota, nps, comentario: comentario.trim() });
+    } catch (e) {
+      erro = `Não foi possível enviar a avaliação (${(e as { code?: string })?.code ?? 'erro'}).`;
+    } finally {
+      enviando = false;
+    }
+  }
+
+  async function cancelar() {
+    if (!ag || cancelando) return;
+    cancelando = true;
+    erro = '';
+    try {
+      await app.cancelar(ag.id);
+    } catch (e) {
+      erro = `Não foi possível cancelar (${(e as { code?: string })?.code ?? 'erro'}).`;
+    } finally {
+      cancelando = false;
+    }
   }
 </script>
 
@@ -68,13 +85,16 @@
         {/each}
       </ol>
 
-      {#if ag.status !== 'finalizado'}
-        <button class="btn-secundario demo-btn" onclick={() => app.avancar(ag.id)}>
-          Demo: avançar status
+      {#if ag.status === 'cancelado'}
+        <p class="nota-demo">Este agendamento foi cancelado.</p>
+      {:else if ag.status === 'agendado'}
+        <button class="btn-secundario demo-btn" onclick={cancelar} disabled={cancelando}>
+          {cancelando ? 'Cancelando...' : 'Cancelar agendamento'}
         </button>
-        <p class="nota-demo">
-          Botão só para testar. Na versão real, o gerente atualiza o status pela tela dele.
-        </p>
+      {/if}
+      {#if erro}<p class="nota-demo" role="alert">{erro}</p>{/if}
+      {#if ag.funcionarioNome}
+        <p class="nota-demo">Responsável: {ag.funcionarioNome}</p>
       {/if}
 
       <h2>Checklist do veículo (360º)</h2>
@@ -83,7 +103,7 @@
       <div class="card resumo">
         <div class="linha">
           <span>Total</span>
-          <b>{brl(ag.total)}</b>
+          <b>{brlCentavos(ag.total)}</b>
         </div>
       </div>
 
@@ -98,7 +118,7 @@
                 </span>
               {/each}
             </div>
-            <p>Obrigado pela avaliação! Indicação: {ag.avaliacao.nps}/10.</p>
+            <p>Obrigado pela avaliação!{#if typeof ag.avaliacao.nps === 'number'} Indicação: {ag.avaliacao.nps}/10.{/if}</p>
             {#if ag.avaliacao.comentario}
               <small>“{ag.avaliacao.comentario}”</small>
             {/if}

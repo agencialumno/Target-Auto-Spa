@@ -5,7 +5,7 @@
   import { app } from '$lib/app.svelte';
   import { authStore } from '$lib/auth.svelte';
   import { reserva } from '$lib/reserva.svelte';
-  import { planos, brl } from '$lib/mock';
+  import { brl } from '$lib/mock';
   import { niveis, JANELA_DIAS } from '$lib/niveis';
 
   const pct = $derived(
@@ -17,8 +17,7 @@
   async function sair() {
     // Antes só navegava para "/": o Firebase continuava logado e o login redirecionava de volta
     await authStore.sair();
-    // Apaga do aparelho os dados locais (fotos, placa, agendamentos de demonstração) da conta que saiu
-    app.resetar();
+    // O store para de escutar o Firestore no layout; aqui só limpa a reserva em andamento
     reserva.reiniciar();
     await goto('/', { replaceState: true });
   }
@@ -58,41 +57,12 @@
         <div class="faixa card" class:atual={n.id === app.nivel.id}>
           <strong>{n.nome}</strong>
           <small>{n.min === 0 ? 'Início' : `a partir de ${brl(n.min)}`}</small>
-          <b>{n.desconto}%</b>
-        </div>
-      {/each}
-    </div>
-    <p class="nota">Faixas de exemplo. O total considera os últimos {JANELA_DIAS} dias.</p>
-
-    <h2>Clube de assinatura</h2>
-    <div class="planos">
-      {#each planos as p}
-        {@const ativo = app.planoId === p.id}
-        <div class="plano card" class:ativo>
-          <div class="plano-topo">
-            <strong>{p.nome}</strong>
-            <span><b>{brl(p.preco)}</b>/mês</span>
-          </div>
-          <ul>
-            {#each p.inclui as item}
-              <li><Icone nome="check" tamanho={14} /> {item}</li>
-            {/each}
-          </ul>
-          {#if ativo}
-            <button class="btn-secundario" onclick={() => app.assinar(null)}>
-              Cancelar assinatura
-            </button>
-          {:else}
-            <button class="btn-primario" onclick={() => app.assinar(p.id)}>
-              Assinar {p.nome}
-            </button>
-          {/if}
         </div>
       {/each}
     </div>
     <p class="nota">
-      Demonstração: sem cobrança real. O desconto do plano e o do nível não se somam; vale o
-      maior.
+      O nível considera os serviços finalizados nos últimos {JANELA_DIAS} dias. Os descontos por
+      nível ainda não estão ativos.
     </p>
 
     <h2>Ajuda</h2>
@@ -122,8 +92,6 @@
         <span>Sair da conta</span>
       </button>
     {/if}
-
-    <button class="zerar" onclick={() => app.resetar()}>Zerar dados da demonstração</button>
   </section>
 </div>
 

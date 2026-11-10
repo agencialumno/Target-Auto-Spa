@@ -36,8 +36,13 @@ service cloud.firestore {
 
     // ---------- Perfis ----------
     match /users/{userId} {
-      // Cada um lê o próprio perfil; admin lê todos
-      allow read: if logado() && (request.auth.uid == userId || souAdmin());
+      // Cada um lê o próprio perfil; admin lê todos; gerente lê só perfis de funcionário
+      // (para atribuir o atendimento; a consulta precisa filtrar por role == 'funcionario')
+      allow read: if logado() && (
+        request.auth.uid == userId
+        || souAdmin()
+        || (tenhoPerfil() && meuPerfil().role == 'gerente' && resource.data.role == 'funcionario')
+      );
 
       // Cadastro: só o próprio usuário, sempre como cliente e SEM condomínio
       allow create: if logado()
@@ -82,36 +87,176 @@ service cloud.firestore {
     }
 
     // ---------- Catálogo de serviços ----------
+    // Preço em centavos inteiros (precoCentavos). O agendamento confere o preço contra este catálogo.
     match /servicos/{servicoId} {
       allow read: if logado();
       allow write: if souAdmin();
     }
 
     // ---------- Agendamentos ----------
-    // Cliente: os próprios. Gerente: os do próprio condomínio. Admin: todos.
-    // O papel "insulfilm" ainda não tem regra (a agenda dele não foi migrada): negado.
+    // Leitura: cliente dono, funcionário atribuído, gerente do condomínio, admin.
+    // Papel "insulfilm": negado (a agenda dele não foi migrada).
     match /agendamentos/{agendamentoId} {
       allow read: if logado() && (
         resource.data.clienteId == request.auth.uid
+        || resource.data.get('funcionarioId', null) == request.auth.uid
         || souGerenteDoCondominio(resource.data.condominioId)
         || souAdmin()
       );
 
-      // O cliente só cria agendamento próprio, no próprio condomínio e como "agendado"
+      // Cada item vem do catálogo: nome e preço têm de ser iguais aos de /servicos.
+      // Custo em leituras: 1 (perfil) + 1 por item (máx. 5) = 6, abaixo do limite de 10 por requisição.
+      function itemOk(i) {
+        return i.keys().hasOnly(['servicoId', 'nome', 'precoCentavos'])
+          && i.keys().hasAll(['servicoId', 'nome', 'precoCentavos'])
+          && i.servicoId is string
+          && exists(/databases/$(database)/documents/servicos/$(i.servicoId))
+          && get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.ativo == true
+          && i.precoCentavos is int
+          && i.precoCentavos == get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.precoCentavos
+          && i.nome == get(/databases/$(database)/documents/servicos/$(i.servicoId)).data.nome;
+      }
+
+      function itensOk(l) {
+        return l is list && l.size() >= 1 && l.size() <= 5
+          && itemOk(l[0])
+          && (l.size() < 2 || itemOk(l[1]))
+          && (l.size() < 3 || itemOk(l[2]))
+          && (l.size() < 4 || itemOk(l[3]))
+          && (l.size() < 5 || itemOk(l[4]));
+      }
+
+      // Rules não têm laço: a soma é escrita por tamanho da lista (máx. 5)
+      function somaItens(l) {
+        return l.size() == 1 ? l[0].precoCentavos
+          : l.size() == 2 ? l[0].precoCentavos + l[1].precoCentavos
+          : l.size() == 3 ? l[0].precoCentavos + l[1].precoCentavos + l[2].precoCentavos
+          : l.size() == 4 ? l[0].precoCentavos + l[1].precoCentavos + l[2].precoCentavos + l[3].precoCentavos
+          : l[0].precoCentavos + l[1].precoCentavos + l[2].precoCentavos + l[3].precoCentavos + l[4].precoCentavos;
+      }
+
       allow create: if tenhoPerfil()
+        && meuPerfil().role == 'cliente'
+        && request.resource.data.keys().hasOnly([
+          'clienteId', 'clienteNome', 'condominioId', 'itens', 'total', 'data', 'hora', 'inicio',
+          'status', 'funcionarioId', 'funcionarioNome', 'veiculo', 'observacoes', 'checklist',
+          'avaliacao', 'criadoEm', 'atualizadoEm'
+        ])
+        && request.resource.data.keys().hasAll([
+          'clienteId', 'clienteNome', 'condominioId', 'itens', 'total', 'data', 'hora', 'inicio',
+          'status', 'veiculo', 'criadoEm'
+        ])
         && request.resource.data.clienteId == request.auth.uid
         && meuPerfil().condominioId != null
         && request.resource.data.condominioId == meuPerfil().condominioId
-        && request.resource.data.status == 'agendado';
+        && request.resource.data.status == 'agendado'
+        && request.resource.data.get('funcionarioId', null) == null
+        && request.resource.data.get('funcionarioNome', null) == null
+        && request.resource.data.get('avaliacao', null) == null
+        && request.resource.data.get('checklist', {'fotos': {}}) == {'fotos': {}}
+        && request.resource.data.clienteNome is string
+        && request.resource.data.clienteNome.size() <= 100
+        && itensOk(request.resource.data.itens)
+        && request.resource.data.total is int
+        && request.resource.data.total == somaItens(request.resource.data.itens)
+        && request.resource.data.data is string && request.resource.data.data.size() == 10
+        && request.resource.data.hora is string && request.resource.data.hora.size() == 5
+        && request.resource.data.inicio is timestamp
+        && request.resource.data.inicio > request.time
+        && request.resource.data.veiculo.keys().hasOnly(['modelo', 'placa'])
+        && request.resource.data.veiculo.get('modelo', '') is string
+        && request.resource.data.veiculo.get('modelo', '').size() <= 60
+        && request.resource.data.veiculo.get('placa', '') is string
+        && request.resource.data.veiculo.get('placa', '').size() <= 10
+        && request.resource.data.get('observacoes', '') is string
+        && request.resource.data.get('observacoes', '').size() <= 500
+        && request.resource.data.criadoEm == request.time;
+
+      // Etapas na ordem: agendado -> em_andamento -> finalizado
+      function avancou(antes, depois) {
+        return (antes == 'agendado' && depois == 'em_andamento')
+          || (antes == 'em_andamento' && depois == 'finalizado');
+      }
+
+      function statusOk() {
+        return !('status' in camposAlterados())
+          || avancou(resource.data.status, request.resource.data.status);
+      }
+
+      function checklistOk() {
+        return !('checklist' in camposAlterados())
+          || (request.resource.data.checklist.keys().hasOnly(['fotos'])
+            && request.resource.data.checklist.fotos is map);
+      }
+
+      function carimboOk() {
+        return !('atualizadoEm' in camposAlterados())
+          || request.resource.data.atualizadoEm == request.time;
+      }
+
+      // Cliente dono: (a) cancelar enquanto "agendado"; (b) avaliar UMA vez quando "finalizado"
+      function clienteCancela() {
+        return resource.data.status == 'agendado'
+          && camposAlterados().hasOnly(['status', 'atualizadoEm'])
+          && request.resource.data.status == 'cancelado';
+      }
+
+      function clienteAvalia() {
+        return resource.data.status == 'finalizado'
+          && resource.data.get('avaliacao', null) == null
+          && camposAlterados().hasOnly(['avaliacao', 'atualizadoEm'])
+          && request.resource.data.avaliacao.keys().hasOnly(['nota', 'nps', 'comentario', 'em'])
+          && request.resource.data.avaliacao.keys().hasAll(['nota', 'comentario', 'em'])
+          && request.resource.data.avaliacao.nota is int
+          && request.resource.data.avaliacao.nota >= 1
+          && request.resource.data.avaliacao.nota <= 5
+          && request.resource.data.avaliacao.get('nps', 0) is int
+          && request.resource.data.avaliacao.get('nps', 0) >= 0
+          && request.resource.data.avaliacao.get('nps', 0) <= 10
+          && request.resource.data.avaliacao.comentario is string
+          && request.resource.data.avaliacao.comentario.size() <= 500
+          && request.resource.data.avaliacao.em == request.time;
+      }
+
+      // Funcionário atribuído: andamento e checklist, nada além
+      function funcionarioAtualiza() {
+        return tenhoPerfil()
+          && meuPerfil().role == 'funcionario'
+          && resource.data.get('funcionarioId', null) == request.auth.uid
+          && resource.data.status in ['agendado', 'em_andamento']
+          && camposAlterados().hasOnly(['status', 'checklist', 'atualizadoEm'])
+          && statusOk()
+          && checklistOk()
+          && carimboOk();
+      }
+
+      // Gerente do condomínio: andamento, atribuição de funcionário e checklist
+      function funcionarioValido() {
+        return request.resource.data.funcionarioId == null
+          || (request.resource.data.funcionarioId is string
+            && exists(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId))
+            && get(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId)).data.role == 'funcionario'
+            && request.resource.data.funcionarioNome == get(/databases/$(database)/documents/users/$(request.resource.data.funcionarioId)).data.nome);
+      }
+
+      function gerenteAtualiza() {
+        return souGerenteDoCondominio(resource.data.condominioId)
+          && camposAlterados().hasOnly(['status', 'funcionarioId', 'funcionarioNome', 'checklist', 'atualizadoEm'])
+          && (
+            !('status' in camposAlterados())
+            || avancou(resource.data.status, request.resource.data.status)
+            || (resource.data.status == 'agendado' && request.resource.data.status == 'cancelado')
+          )
+          && (!('funcionarioId' in camposAlterados()) || funcionarioValido())
+          && checklistOk()
+          && carimboOk();
+      }
 
       allow update: if logado() && (
-        // Cliente dono: só a avaliação (não pode se autodeclarar "finalizado" nem mudar dono/condomínio)
-        (resource.data.clienteId == request.auth.uid
-          && camposAlterados().hasOnly(['avaliacao']))
-        // Gerente do condomínio: atualiza andamento, mas não troca dono nem condomínio
-        || (souGerenteDoCondominio(resource.data.condominioId)
-          && !camposAlterados().hasAny(['clienteId', 'condominioId']))
-        || souAdmin()
+        souAdmin()
+        || (resource.data.clienteId == request.auth.uid && carimboOk() && (clienteCancela() || clienteAvalia()))
+        || funcionarioAtualiza()
+        || gerenteAtualiza()
       );
 
       allow delete: if souAdmin();
@@ -120,43 +265,76 @@ service cloud.firestore {
     // ---------- Chat ----------
     // chatId = uid do cliente dono da conversa.
     // Participam: o cliente, o gerente do condomínio dele e o admin.
-    match /chats/{chatId}/mensagens/{msgId} {
-      function souDonoDaConversa() {
+    match /chats/{chatId} {
+      function souDono() {
         return logado() && request.auth.uid == chatId;
       }
 
-      function souGerenteDaConversa() {
-        return tenhoPerfil()
-          && meuPerfil().role == 'gerente'
-          && meuPerfil().condominioId != null
-          && exists(/databases/$(database)/documents/users/$(chatId))
-          && get(/databases/$(database)/documents/users/$(chatId)).data.condominioId == meuPerfil().condominioId;
-      }
+      allow read: if souDono()
+        || souGerenteDoCondominio(resource.data.condominioId)
+        || souAdmin();
 
-      function participante() {
-        return souDonoDaConversa() || souGerenteDaConversa() || souAdmin();
-      }
+      // Só o cliente abre a conversa, com o condomínio do próprio perfil
+      allow create: if souDono()
+        && tenhoPerfil()
+        && request.resource.data.keys().hasOnly(['clienteId', 'clienteNome', 'condominioId', 'ultimaMensagem', 'ultimaHora', 'naoLidasGerente', 'naoLidasCliente'])
+        && request.resource.data.keys().hasAll(['clienteId', 'clienteNome', 'condominioId'])
+        && request.resource.data.clienteId == request.auth.uid
+        && meuPerfil().condominioId != null
+        && request.resource.data.condominioId == meuPerfil().condominioId
+        && request.resource.data.clienteNome is string
+        && request.resource.data.clienteNome.size() <= 100;
 
-      allow read: if participante();
-
-      // Quem escreve só pode assinar como o próprio lado da conversa
-      allow create: if participante()
-        && request.resource.data.keys().hasOnly(['de', 'texto', 'hora', 'lida'])
-        && request.resource.data.keys().hasAll(['de', 'texto', 'hora'])
-        && request.resource.data.texto is string
-        && request.resource.data.texto.size() > 0
-        && request.resource.data.texto.size() <= 2000
-        && request.resource.data.hora is string
-        && request.resource.data.hora.size() <= 10
+      // Resumo da conversa: nunca troca dono nem condomínio.
+      // Cliente zera só o contador dele; gerente/admin zeram só o do gerente.
+      allow update: if (souDono() || souGerenteDoCondominio(resource.data.condominioId) || souAdmin())
+        && camposAlterados().hasOnly(['ultimaMensagem', 'ultimaHora', 'naoLidasGerente', 'naoLidasCliente'])
+        && (!('ultimaMensagem' in camposAlterados()) || (request.resource.data.ultimaMensagem is string && request.resource.data.ultimaMensagem.size() <= 200))
+        && (!('naoLidasGerente' in camposAlterados()) || (request.resource.data.naoLidasGerente is int && request.resource.data.naoLidasGerente >= 0))
+        && (!('naoLidasCliente' in camposAlterados()) || (request.resource.data.naoLidasCliente is int && request.resource.data.naoLidasCliente >= 0))
         && (
-          (souDonoDaConversa() && request.resource.data.de == 'cliente')
-          || ((souGerenteDaConversa() || souAdmin()) && request.resource.data.de == 'gerente')
+          souAdmin()
+          || (souDono() && (!('naoLidasCliente' in camposAlterados()) || request.resource.data.naoLidasCliente == 0))
+          || (!souDono() && (!('naoLidasGerente' in camposAlterados()) || request.resource.data.naoLidasGerente == 0))
         );
 
-      // Só marcar como lida
-      allow update: if participante() && camposAlterados().hasOnly(['lida']);
-
       allow delete: if false;
+
+      match /mensagens/{msgId} {
+        function souGerenteDaConversa() {
+          return tenhoPerfil()
+            && meuPerfil().role == 'gerente'
+            && meuPerfil().condominioId != null
+            && exists(/databases/$(database)/documents/chats/$(chatId))
+            && get(/databases/$(database)/documents/chats/$(chatId)).data.condominioId == meuPerfil().condominioId;
+        }
+
+        function participante() {
+          return souDono() || souGerenteDaConversa() || souAdmin();
+        }
+
+        allow read: if participante();
+
+        // Quem escreve só assina como o próprio lado da conversa
+        allow create: if participante()
+          && request.resource.data.keys().hasOnly(['de', 'texto', 'hora', 'lida', 'criadoEm'])
+          && request.resource.data.keys().hasAll(['de', 'texto', 'hora', 'criadoEm'])
+          && request.resource.data.texto is string
+          && request.resource.data.texto.size() > 0
+          && request.resource.data.texto.size() <= 2000
+          && request.resource.data.hora is string
+          && request.resource.data.hora.size() <= 10
+          && request.resource.data.criadoEm == request.time
+          && (
+            (souDono() && request.resource.data.de == 'cliente')
+            || ((souGerenteDaConversa() || souAdmin()) && !souDono() && request.resource.data.de == 'gerente')
+          );
+
+        // Só marcar como lida
+        allow update: if participante() && camposAlterados().hasOnly(['lida']);
+
+        allow delete: if false;
+      }
     }
 
     // Tudo o que não foi liberado acima fica bloqueado

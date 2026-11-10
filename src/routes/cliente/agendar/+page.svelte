@@ -18,6 +18,10 @@
 
   let dataSel = $state(chaveData(dias[0]));
   let novoId = $state<string | null>(null);
+  let modelo = $state('');
+  let placa = $state('');
+  let enviando = $state(false);
+  let erro = $state('');
 
   const diaAtual = $derived(dias.find((d) => chaveData(d) === dataSel) ?? dias[0]);
 
@@ -37,15 +41,29 @@
     reserva.hora = null;
   }
 
-  function confirmar() {
-    if (!reserva.hora || novoId) return;
+  const placaOk = $derived(/^[A-Za-z]{3}[0-9][A-Za-z0-9][0-9]{2}$/.test(placa.trim()));
+
+  async function confirmar() {
+    if (!reserva.hora || novoId || enviando || !placaOk) return;
+    enviando = true;
+    erro = '';
     reserva.data = dataSel;
-    novoId = app.criarAgendamento({
-      servicos: reserva.itens.map((s) => s.id),
-      data: dataSel,
-      hora: reserva.hora,
-      total: reserva.total
-    });
+    try {
+      novoId = await app.criarAgendamento({
+        servicos: reserva.itens.map((s) => s.id),
+        data: dataSel,
+        hora: reserva.hora,
+        veiculo: { modelo: modelo.trim(), placa: placa.trim().toUpperCase() }
+      });
+    } catch (e) {
+      const codigo = (e as { code?: string })?.code;
+      erro =
+        codigo === 'permission-denied'
+          ? 'O preço ou a disponibilidade mudou. Volte aos serviços e tente de novo.'
+          : ((e as Error)?.message ?? 'Não foi possível agendar.');
+    } finally {
+      enviando = false;
+    }
   }
 
   async function irPara(caminho: string) {
@@ -62,12 +80,6 @@
         <b>{brl(item.preco)}</b>
       </div>
     {/each}
-    {#if reserva.valorDesconto > 0}
-      <div class="linha desc">
-        <span>Desconto {reserva.descontoPct}% ({app.plano ? `plano ${app.plano.nome}` : `nível ${app.nivel.nome}`})</span>
-        <b>− {brl(reserva.valorDesconto)}</b>
-      </div>
-    {/if}
     <div class="linha total">
       <span>Total</span>
       <b>{brl(reserva.total)}</b>
@@ -102,7 +114,6 @@
         <Icone nome="calendar" tamanho={18} />
         {dataExtensa(dataSel)} às {reserva.hora}
       </p>
-      <p class="demo">Demonstração: o agendamento fica salvo só neste aparelho.</p>
       <div class="botoes">
         <button class="btn-primario" onclick={() => irPara(`/cliente/agendamentos/${novoId}`)}>
           Ver meu agendamento
@@ -147,6 +158,18 @@
         {/each}
       </div>
 
+      <h2>Veículo</h2>
+      <div class="veiculo">
+        <input type="text" placeholder="Modelo (ex.: Gol)" maxlength="60" bind:value={modelo} />
+        <input
+          type="text"
+          placeholder="Placa (ex.: ABC1D23)"
+          maxlength="7"
+          autocapitalize="characters"
+          bind:value={placa}
+        />
+      </div>
+
       <h2>Horário</h2>
       {#if horarios.length}
         <div class="horas">
@@ -166,14 +189,36 @@
     </section>
 
     <div class="cta">
-      <button class="btn-primario" disabled={!reserva.hora} onclick={confirmar}>
-        {reserva.hora ? `Confirmar às ${reserva.hora}` : 'Escolha um horário'}
+      {#if erro}<p class="erro-agendar" role="alert">{erro}</p>{/if}
+      <button class="btn-primario" disabled={!reserva.hora || !placaOk || enviando} onclick={confirmar}>
+        {#if enviando}Agendando...{:else if !reserva.hora}Escolha um horário{:else if !placaOk}Informe a placa{:else}Confirmar às {reserva.hora}{/if}
       </button>
     </div>
   {/if}
 </div>
 
 <style>
+  .veiculo {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .veiculo input {
+    min-width: 0;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    font: inherit;
+  }
+
+  .erro-agendar {
+    margin: 0 0 8px;
+    color: #b3261e;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
   .centro {
     display: flex;
     flex-direction: column;

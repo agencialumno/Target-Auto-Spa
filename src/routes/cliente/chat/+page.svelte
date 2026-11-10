@@ -6,10 +6,19 @@
   let texto = $state('');
   let fim = $state<HTMLDivElement>();
 
-  function enviar() {
-    if (!texto.trim()) return;
-    app.enviar(texto);
+  let erro = $state('');
+
+  async function enviar() {
+    const t = texto;
+    if (!t.trim()) return;
     texto = '';
+    erro = '';
+    try {
+      await app.enviar(t);
+    } catch (e) {
+      texto = t;
+      erro = `Não foi possível enviar (${(e as { code?: string })?.code ?? 'erro'}).`;
+    }
   }
 
   // Marca como lidas ao abrir e sempre que chegar mensagem nova com a conversa aberta
@@ -34,7 +43,7 @@
     <div class="folha-alca"></div>
 
     <div class="mensagens">
-      {#each app.mensagens as m}
+      {#each app.mensagens as m (m.id)}
         <div class={`bolha ${m.de}`}>
           <p>{m.texto}</p>
           <small>{m.hora}</small>
@@ -42,7 +51,7 @@
       {/each}
       <div bind:this={fim}></div>
     </div>
-    <p class="demo">Demonstração: as respostas do gerente são automáticas.</p>
+    {#if erro}<p class="demo" role="alert">{erro}</p>{/if}
   </section>
 
   <div class="digitar">

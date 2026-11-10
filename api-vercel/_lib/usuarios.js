@@ -2,7 +2,7 @@
 // recebe `auth` (firebase-admin/auth) e `db` (firebase-admin/firestore) por parâmetro,
 // o que permite testar com objetos falsos.
 
-export const PAPEIS = ['cliente', 'gerente', 'admin', 'insulfilm'];
+export const PAPEIS = ['cliente', 'gerente', 'funcionario', 'admin', 'insulfilm'];
 
 export class ErroHttp extends Error {
   constructor(status, mensagem) {

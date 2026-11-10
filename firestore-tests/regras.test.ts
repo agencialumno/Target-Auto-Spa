@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment
 } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 
 // Roda contra o Firebase Emulator: `npm run test:rules`
 let env: RulesTestEnvironment;
@@ -17,10 +17,14 @@ const PERFIS: Record<string, { role: string; condominioId: string | null }> = {
   carlos: { role: 'cliente', condominioId: null },
   gui: { role: 'gerente', condominioId: 'c1' },
   gabi: { role: 'gerente', condominioId: 'c2' },
+  fun: { role: 'funcionario', condominioId: null },
+  fran: { role: 'funcionario', condominioId: null },
   gnulo: { role: 'gerente', condominioId: null },
   adm: { role: 'admin', condominioId: null },
   ins: { role: 'insulfilm', condominioId: null }
 };
+
+const futuro = () => Timestamp.fromDate(new Date(Date.now() + 86400000));
 
 const perfil = (uid: string) => ({
   nome: uid,
@@ -46,24 +50,46 @@ beforeEach(async () => {
     for (const uid of Object.keys(PERFIS)) await setDoc(doc(db, 'users', uid), perfil(uid));
     await setDoc(doc(db, 'condominios', 'c1'), { nome: 'Cond 1', nomeNormalizado: 'cond 1' });
     await setDoc(doc(db, 'condominios', 'c2'), { nome: 'Cond 2', nomeNormalizado: 'cond 2' });
-    await setDoc(doc(db, 'servicos', 's1'), { nome: 'Lavagem' });
-    await setDoc(doc(db, 'agendamentos', 'ag1'), { clienteId: 'ana', condominioId: 'c1', status: 'agendado' });
-    await setDoc(doc(db, 'agendamentos', 'ag2'), { clienteId: 'bia', condominioId: 'c2', status: 'agendado' });
+    await setDoc(doc(db, 'servicos', 's1'), { nome: 'Lavagem', precoCentavos: 6500, duracaoMin: 45, ativo: true });
+    await setDoc(doc(db, 'servicos', 's2'), { nome: 'Polimento', precoCentavos: 20000, duracaoMin: 120, ativo: true });
+    await setDoc(doc(db, 'servicos', 's3'), { nome: 'Antigo', precoCentavos: 5000, duracaoMin: 30, ativo: false });
+    const base = {
+      clienteNome: 'x',
+      itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 }],
+      total: 6500,
+      data: '2030-01-01',
+      hora: '09:00',
+      inicio: Timestamp.fromDate(new Date('2030-01-01T12:00:00Z')),
+      veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
+      checklist: { fotos: {} },
+      avaliacao: null,
+      funcionarioId: null,
+      funcionarioNome: null
+    };
+    await setDoc(doc(db, 'agendamentos', 'ag1'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'agendado' });
+    await setDoc(doc(db, 'agendamentos', 'ag2'), { ...base, clienteId: 'bia', condominioId: 'c2', status: 'agendado' });
     // Agendamento sem condomínio: gerente sem condomínio NÃO pode enxergar (null == null)
-    await setDoc(doc(db, 'agendamentos', 'agNulo'), { clienteId: 'carlos', condominioId: null, status: 'agendado' });
-    await setDoc(doc(db, 'chats', 'ana', 'mensagens', 'm1'), { de: 'cliente', texto: 'oi', hora: '10:00', lida: false });
+    await setDoc(doc(db, 'agendamentos', 'agNulo'), { ...base, clienteId: 'carlos', condominioId: null, status: 'agendado' });
+    await setDoc(doc(db, 'agendamentos', 'agAtrib'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'agendado', funcionarioId: 'fun', funcionarioNome: 'fun' });
+    await setDoc(doc(db, 'agendamentos', 'agEmAnd'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'em_andamento', funcionarioId: 'fun', funcionarioNome: 'fun' });
+    await setDoc(doc(db, 'agendamentos', 'agFim'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'finalizado', funcionarioId: 'fun', funcionarioNome: 'fun' });
+    await setDoc(doc(db, 'agendamentos', 'agAval'), { ...base, clienteId: 'ana', condominioId: 'c1', status: 'finalizado', avaliacao: { nota: 4, comentario: '', em: Timestamp.now() } });
+    await setDoc(doc(db, 'agendamentos', 'agOutro'), { ...base, clienteId: 'bia', condominioId: 'c2', status: 'finalizado' });
+    await setDoc(doc(db, 'chats', 'ana'), { clienteId: 'ana', clienteNome: 'Ana', condominioId: 'c1', naoLidasGerente: 0, naoLidasCliente: 0 });
+    await setDoc(doc(db, 'chats', 'ana', 'mensagens', 'm1'), { de: 'cliente', texto: 'oi', hora: '10:00', lida: false, criadoEm: Timestamp.now() });
   });
 });
 
 const como = (uid: string | null) =>
   (uid ? env.authenticatedContext(uid) : env.unauthenticatedContext()).firestore();
 
-const PAPEIS = ['anonimo', 'cliente', 'gerente', 'admin', 'insulfilm'] as const;
+const PAPEIS = ['anonimo', 'cliente', 'gerente', 'funcionario', 'admin', 'insulfilm'] as const;
 // ana (cliente c1), gui (gerente c1), adm, ins; anônimo = null
 const quem: Record<(typeof PAPEIS)[number], string | null> = {
   anonimo: null,
   cliente: 'ana',
   gerente: 'gui',
+  funcionario: 'fun',
   admin: 'adm',
   insulfilm: 'ins'
 };
@@ -83,6 +109,16 @@ describe('users', () => {
     await assertSucceeds(getDoc(doc(como('adm'), 'users', 'ana')));
   });
 
+  it('gerente lista só funcionários (para atribuir atendimentos); não lê clientes nem admins', async () => {
+    await assertSucceeds(getDocs(query(collection(como('gui'), 'users'), where('role', '==', 'funcionario'))));
+    await assertSucceeds(getDoc(doc(como('gui'), 'users', 'fun')));
+    await assertFails(getDocs(collection(como('gui'), 'users')));
+    await assertFails(getDocs(query(collection(como('gui'), 'users'), where('role', '==', 'cliente'))));
+    await assertFails(getDoc(doc(como('gui'), 'users', 'adm')));
+    await assertFails(getDocs(query(collection(como('ana'), 'users'), where('role', '==', 'funcionario'))));
+    await assertFails(getDocs(query(collection(como('fun'), 'users'), where('role', '==', 'funcionario'))));
+  });
+
   it('listar todos os usuários: só admin', async () => {
     await assertFails(getDocs(collection(como('ana'), 'users')));
     await assertFails(getDocs(collection(como('gui'), 'users')));
@@ -97,7 +133,7 @@ describe('users', () => {
       await assertSucceeds(setDoc(doc(como('novo'), 'users', 'novo'), novo));
     });
 
-    it.each(['admin', 'gerente', 'insulfilm'])('NÃO cria perfil com role %s', async (role) => {
+    it.each(['admin', 'gerente', 'funcionario', 'insulfilm'])('NÃO cria perfil com role %s', async (role) => {
       await assertFails(setDoc(doc(como('novo'), 'users', 'novo'), { ...novo, role }));
     });
 
@@ -182,13 +218,13 @@ describe('condominios e servicos (leitura logada, escrita admin)', () => {
 
     it(`${colecao}: leitura`, async () => {
       await assertFails(getDoc(doc(como(null), colecao, id)));
-      for (const p of ['cliente', 'gerente', 'admin', 'insulfilm'] as const) {
+      for (const p of ['cliente', 'gerente', 'funcionario', 'admin', 'insulfilm'] as const) {
         await assertSucceeds(getDoc(doc(como(quem[p]), colecao, id)));
       }
     });
 
     it(`${colecao}: escrita só admin`, async () => {
-      for (const p of ['anonimo', 'cliente', 'gerente', 'insulfilm'] as const) {
+      for (const p of ['anonimo', 'cliente', 'gerente', 'funcionario', 'insulfilm'] as const) {
         await assertFails(setDoc(doc(como(quem[p]), colecao, 'novo'), { nome: 'x' }));
         await assertFails(updateDoc(doc(como(quem[p]), colecao, id), { nome: 'x' }));
         await assertFails(deleteDoc(doc(como(quem[p]), colecao, id)));
@@ -206,173 +242,468 @@ describe('condominios e servicos (leitura logada, escrita admin)', () => {
 });
 
 describe('agendamentos', () => {
+  const ag = (extra: Record<string, unknown> = {}) => ({
+    clienteId: 'ana',
+    clienteNome: 'Ana',
+    condominioId: 'c1',
+    itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 }],
+    total: 6500,
+    data: '2030-01-01',
+    hora: '09:00',
+    inicio: futuro(),
+    status: 'agendado',
+    funcionarioId: null,
+    funcionarioNome: null,
+    veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
+    observacoes: '',
+    checklist: { fotos: {} },
+    avaliacao: null,
+    criadoEm: serverTimestamp(),
+    ...extra
+  });
+  const ref = (uid: string | null, id: string) => doc(como(uid), 'agendamentos', id);
+  const atualiza = (uid: string | null, id: string, dados: Record<string, unknown>) =>
+    updateDoc(ref(uid, id), { atualizadoEm: serverTimestamp(), ...dados });
+  const nota = (extra: Record<string, unknown> = {}) => ({
+    avaliacao: { nota: 5, nps: 10, comentario: 'Ótimo', em: serverTimestamp(), ...extra }
+  });
+
   describe('leitura', () => {
     it('anônimo e insulfilm: negado', async () => {
-      await assertFails(getDoc(doc(como(null), 'agendamentos', 'ag1')));
-      await assertFails(getDoc(doc(como('ins'), 'agendamentos', 'ag1')));
+      await assertFails(getDoc(ref(null, 'ag1')));
+      await assertFails(getDoc(ref('ins', 'ag1')));
     });
 
     it('cliente: só o próprio', async () => {
-      await assertSucceeds(getDoc(doc(como('ana'), 'agendamentos', 'ag1')));
-      await assertFails(getDoc(doc(como('ana'), 'agendamentos', 'ag2')));
+      await assertSucceeds(getDoc(ref('ana', 'ag1')));
+      await assertFails(getDoc(ref('ana', 'ag2')));
     });
 
     it('gerente: só do próprio condomínio', async () => {
-      await assertSucceeds(getDoc(doc(como('gui'), 'agendamentos', 'ag1')));
-      await assertFails(getDoc(doc(como('gui'), 'agendamentos', 'ag2')));
-      await assertSucceeds(getDoc(doc(como('gabi'), 'agendamentos', 'ag2')));
+      await assertSucceeds(getDoc(ref('gui', 'ag1')));
+      await assertFails(getDoc(ref('gui', 'ag2')));
+      await assertSucceeds(getDoc(ref('gabi', 'ag2')));
     });
 
     it('gerente SEM condomínio não lê agendamento sem condomínio (null == null)', async () => {
-      await assertFails(getDoc(doc(como('gnulo'), 'agendamentos', 'agNulo')));
-      await assertFails(getDoc(doc(como('gnulo'), 'agendamentos', 'ag1')));
+      await assertFails(getDoc(ref('gnulo', 'agNulo')));
+      await assertFails(getDoc(ref('gnulo', 'ag1')));
+    });
+
+    it('funcionário: só os atribuídos a ele', async () => {
+      await assertSucceeds(getDoc(ref('fun', 'agAtrib')));
+      await assertFails(getDoc(ref('fun', 'ag1')));
+      await assertFails(getDoc(ref('fran', 'agAtrib')));
     });
 
     it('admin lê todos', async () => {
-      for (const id of ['ag1', 'ag2', 'agNulo']) await assertSucceeds(getDoc(doc(como('adm'), 'agendamentos', id)));
+      for (const id of ['ag1', 'ag2', 'agNulo']) await assertSucceeds(getDoc(ref('adm', id)));
     });
 
-    it('lista filtrada pelo dono/condomínio funciona; lista geral é negada', async () => {
+    it('listas filtradas funcionam; lista geral é negada', async () => {
       await assertSucceeds(getDocs(query(collection(como('ana'), 'agendamentos'), where('clienteId', '==', 'ana'))));
       await assertFails(getDocs(collection(como('ana'), 'agendamentos')));
       await assertSucceeds(getDocs(query(collection(como('gui'), 'agendamentos'), where('condominioId', '==', 'c1'))));
       await assertFails(getDocs(query(collection(como('gui'), 'agendamentos'), where('condominioId', '==', 'c2'))));
+      await assertSucceeds(getDocs(query(collection(como('fun'), 'agendamentos'), where('funcionarioId', '==', 'fun'))));
+      await assertFails(getDocs(query(collection(como('fun'), 'agendamentos'), where('funcionarioId', '==', 'fran'))));
+      await assertSucceeds(getDocs(collection(como('adm'), 'agendamentos')));
     });
   });
 
   describe('criação', () => {
-    const ag = (extra = {}) => ({ clienteId: 'ana', condominioId: 'c1', status: 'agendado', ...extra });
+    const criar = (uid: string | null, dados: Record<string, unknown>) =>
+      setDoc(doc(como(uid), 'agendamentos', 'novo'), dados);
 
-    it('cliente cria o próprio, no próprio condomínio, como "agendado"', async () => {
-      await assertSucceeds(setDoc(doc(como('ana'), 'agendamentos', 'novo'), ag()));
+    it('cliente cria o próprio, no próprio condomínio, "agendado", preço do catálogo', async () => {
+      await assertSucceeds(criar('ana', ag()));
     });
 
-    it('NÃO cria para outro cliente', async () => {
-      await assertFails(setDoc(doc(como('ana'), 'agendamentos', 'novo'), ag({ clienteId: 'bia' })));
+    it('2 serviços: total é a soma exata', async () => {
+      const itens = [
+        { servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 },
+        { servicoId: 's2', nome: 'Polimento', precoCentavos: 20000 }
+      ];
+      await assertSucceeds(criar('ana', ag({ itens, total: 26500 })));
+      await assertFails(criar('ana', ag({ itens, total: 26499 })));
+      await assertFails(criar('ana', ag({ itens, total: 6500 })));
     });
 
-    it('NÃO cria em outro condomínio', async () => {
-      await assertFails(setDoc(doc(como('ana'), 'agendamentos', 'novo'), ag({ condominioId: 'c2' })));
+    it('5 itens passam (dentro do limite de leituras); 6 e 0 itens não', async () => {
+      const item = { servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500 };
+      const outros = [
+        item,
+        { servicoId: 's2', nome: 'Polimento', precoCentavos: 20000 },
+        item,
+        item,
+        item
+      ];
+      await assertSucceeds(criar('ana', ag({ itens: outros, total: 6500 * 4 + 20000 })));
+      await assertFails(criar('ana', ag({ itens: [...outros, item], total: 6500 * 5 + 20000 })));
+      await assertFails(criar('ana', ag({ itens: [], total: 0 })));
     });
 
-    it('NÃO cria já "finalizado"', async () => {
-      await assertFails(setDoc(doc(como('ana'), 'agendamentos', 'novo'), ag({ status: 'finalizado' })));
-    });
-
-    it('cliente sem condomínio não cria', async () => {
+    it('NEGA alterar o preço de um item (cliente pagando menos)', async () => {
       await assertFails(
-        setDoc(doc(como('carlos'), 'agendamentos', 'novo'), { clienteId: 'carlos', condominioId: null, status: 'agendado' })
+        criar('ana', ag({ itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 100 }], total: 100 }))
       );
     });
 
-    it('anônimo e insulfilm não criam', async () => {
-      await assertFails(setDoc(doc(como(null), 'agendamentos', 'n1'), ag()));
-      await assertFails(setDoc(doc(como('ins'), 'agendamentos', 'n2'), ag({ clienteId: 'ins' })));
+    it('NEGA total diferente da soma', async () => {
+      await assertFails(criar('ana', ag({ total: 100 })));
+      await assertFails(criar('ana', ag({ total: 999999 })));
+      await assertFails(criar('ana', ag({ total: 65.0 + 0.5 })));
+    });
+
+    it('NEGA serviço inexistente, inativo ou com nome diferente do catálogo', async () => {
+      await assertFails(
+        criar('ana', ag({ itens: [{ servicoId: 'fantasma', nome: 'X', precoCentavos: 1 }], total: 1 }))
+      );
+      await assertFails(
+        criar('ana', ag({ itens: [{ servicoId: 's3', nome: 'Antigo', precoCentavos: 5000 }], total: 5000 }))
+      );
+      await assertFails(
+        criar('ana', ag({ itens: [{ servicoId: 's1', nome: 'Outro nome', precoCentavos: 6500 }] }))
+      );
+    });
+
+    it('NEGA item com campo extra', async () => {
+      await assertFails(
+        criar('ana', ag({ itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 6500, desconto: 50 }] }))
+      );
+    });
+
+    it('NEGA para outro cliente, outro condomínio e status que não seja "agendado"', async () => {
+      await assertFails(criar('ana', ag({ clienteId: 'bia' })));
+      await assertFails(criar('ana', ag({ condominioId: 'c2' })));
+      for (const status of ['em_andamento', 'finalizado', 'cancelado']) {
+        await assertFails(criar('ana', ag({ status })));
+      }
+    });
+
+    it('NEGA já criar com funcionário, avaliação, fotos ou campo extra', async () => {
+      await assertFails(criar('ana', ag({ funcionarioId: 'fun', funcionarioNome: 'fun' })));
+      await assertFails(criar('ana', ag({ avaliacao: { nota: 5, comentario: '', em: serverTimestamp() } })));
+      await assertFails(criar('ana', ag({ checklist: { fotos: { antes_frente: { path: 'x' } } } })));
+      await assertFails(criar('ana', ag({ pago: true })));
+    });
+
+    it('NEGA horário no passado e carimbo de criação falso', async () => {
+      await assertFails(criar('ana', ag({ inicio: Timestamp.fromDate(new Date(Date.now() - 86400000)) })));
+      await assertFails(criar('ana', ag({ criadoEm: Timestamp.fromDate(new Date(2020, 1, 1)) })));
+    });
+
+    it('cliente sem condomínio, e quem não é cliente, não criam', async () => {
+      await assertFails(criar('carlos', ag({ clienteId: 'carlos', condominioId: null })));
+      await assertFails(criar('gui', ag({ clienteId: 'gui' })));
+      await assertFails(criar('adm', ag({ clienteId: 'adm' })));
+      await assertFails(criar('fun', ag({ clienteId: 'fun' })));
+      await assertFails(criar('ins', ag({ clienteId: 'ins' })));
+      await assertFails(criar(null, ag()));
     });
   });
 
-  describe('atualização', () => {
-    it('cliente: só a avaliação', async () => {
-      await assertSucceeds(updateDoc(doc(como('ana'), 'agendamentos', 'ag1'), { avaliacao: { nota: 5 } }));
-      await assertFails(updateDoc(doc(como('ana'), 'agendamentos', 'ag1'), { status: 'finalizado' }));
-      await assertFails(updateDoc(doc(como('ana'), 'agendamentos', 'ag1'), { condominioId: 'c2' }));
-      await assertFails(updateDoc(doc(como('ana'), 'agendamentos', 'ag1'), { clienteId: 'bia' }));
-      await assertFails(updateDoc(doc(como('ana'), 'agendamentos', 'ag2'), { avaliacao: { nota: 1 } }));
+  describe('atualização pelo cliente', () => {
+    it('cancela o próprio enquanto "agendado"', async () => {
+      await assertSucceeds(atualiza('ana', 'ag1', { status: 'cancelado' }));
     });
 
-    it('gerente: muda andamento no próprio condomínio, mas não dono nem condomínio', async () => {
-      await assertSucceeds(updateDoc(doc(como('gui'), 'agendamentos', 'ag1'), { status: 'em-atendimento' }));
-      await assertFails(updateDoc(doc(como('gui'), 'agendamentos', 'ag1'), { condominioId: 'c2' }));
-      await assertFails(updateDoc(doc(como('gui'), 'agendamentos', 'ag1'), { clienteId: 'bia' }));
-      await assertFails(updateDoc(doc(como('gui'), 'agendamentos', 'ag2'), { status: 'finalizado' }));
+    it('NEGA cancelar depois que começou ou terminou, ou o de outra pessoa', async () => {
+      await assertFails(atualiza('ana', 'agEmAnd', { status: 'cancelado' }));
+      await assertFails(atualiza('ana', 'agFim', { status: 'cancelado' }));
+      await assertFails(atualiza('ana', 'ag2', { status: 'cancelado' }));
     });
 
-    it('admin atualiza; anônimo e insulfilm não', async () => {
-      await assertSucceeds(updateDoc(doc(como('adm'), 'agendamentos', 'ag1'), { status: 'finalizado' }));
-      await assertFails(updateDoc(doc(como(null), 'agendamentos', 'ag1'), { status: 'finalizado' }));
-      await assertFails(updateDoc(doc(como('ins'), 'agendamentos', 'ag1'), { status: 'finalizado' }));
+    it('NEGA se autodeclarar em andamento ou finalizado', async () => {
+      await assertFails(atualiza('ana', 'ag1', { status: 'em_andamento' }));
+      await assertFails(atualiza('ana', 'ag1', { status: 'finalizado' }));
+    });
+
+    it('avalia UMA vez, com nota inteira de 1 a 5, quando finalizado', async () => {
+      await assertSucceeds(atualiza('ana', 'agFim', nota()));
+    });
+
+    it.each([0, 6, -1, 4.5, '5'])('NEGA nota inválida (%s)', async (n) => {
+      await assertFails(atualiza('ana', 'agFim', nota({ nota: n })));
+    });
+
+    it('NEGA avaliar de novo, antes de finalizar, o de outra pessoa ou com campo extra', async () => {
+      await assertFails(atualiza('ana', 'agAval', nota()));
+      await assertFails(atualiza('ana', 'ag1', nota()));
+      await assertFails(atualiza('ana', 'agEmAnd', nota()));
+      await assertFails(atualiza('ana', 'agOutro', nota()));
+      await assertFails(atualiza('ana', 'agFim', nota({ verificado: true })));
+      await assertFails(atualiza('ana', 'agFim', nota({ comentario: 'x'.repeat(501) })));
+    });
+
+    it('NEGA cancelar e avaliar na mesma escrita, ou usar carimbo falso', async () => {
+      await assertFails(atualiza('ana', 'agFim', { ...nota(), status: 'cancelado' }));
+      await assertFails(updateDoc(ref('ana', 'ag1'), { status: 'cancelado', atualizadoEm: Timestamp.fromDate(new Date(2020, 1, 1)) }));
+    });
+
+    it.each([
+      ['total', { total: 1 }],
+      ['itens', { itens: [{ servicoId: 's1', nome: 'Lavagem', precoCentavos: 1 }] }],
+      ['preço de item', { 'itens.0.precoCentavos': 1 }],
+      ['clienteId', { clienteId: 'bia' }],
+      ['condominioId', { condominioId: 'c2' }],
+      ['funcionarioId', { funcionarioId: 'fun' }],
+      ['checklist', { checklist: { fotos: {} } }],
+      ['data', { data: '2031-01-01' }]
+    ])('NEGA alterar %s', async (_nome, dados) => {
+      await assertFails(atualiza('ana', 'ag1', dados as Record<string, unknown>));
+    });
+  });
+
+  describe('atualização pelo funcionário', () => {
+    const foto = { 'checklist.fotos.antes_frente': { path: 'agendamentos/agAtrib/checklist/antes_frente.jpg', em: Timestamp.now() } };
+
+    it('avança o atendimento atribuído, uma etapa por vez', async () => {
+      await assertSucceeds(atualiza('fun', 'agAtrib', { status: 'em_andamento' }));
+      await assertSucceeds(atualiza('fun', 'agEmAnd', { status: 'finalizado' }));
+    });
+
+    it('grava fotos no checklist do atribuído', async () => {
+      await assertSucceeds(atualiza('fun', 'agAtrib', foto));
+      await assertSucceeds(atualiza('fun', 'agEmAnd', { ...foto, 'checklist.fotos.depois_frente': { path: 'x', em: Timestamp.now() } }));
+    });
+
+    it('NEGA pular etapa, voltar, cancelar', async () => {
+      await assertFails(atualiza('fun', 'agAtrib', { status: 'finalizado' }));
+      await assertFails(atualiza('fun', 'agEmAnd', { status: 'agendado' }));
+      await assertFails(atualiza('fun', 'agAtrib', { status: 'cancelado' }));
+    });
+
+    it('NEGA agendamento de outro funcionário ou sem atribuição', async () => {
+      await assertFails(atualiza('fran', 'agAtrib', { status: 'em_andamento' }));
+      await assertFails(atualiza('fun', 'ag1', { status: 'em_andamento' }));
+      await assertFails(atualiza('fun', 'ag1', foto));
+    });
+
+    it('NEGA mexer em atendimento já finalizado', async () => {
+      await assertFails(atualiza('fun', 'agFim', foto));
+    });
+
+    it.each([
+      ['total', { total: 1 }],
+      ['itens', { itens: [] }],
+      ['preço de item', { 'itens.0.precoCentavos': 1 }],
+      ['clienteId', { clienteId: 'fun' }],
+      ['condominioId', { condominioId: 'c2' }],
+      ['funcionarioId (passar para outro)', { funcionarioId: 'fran' }],
+      ['avaliacao', nota()],
+      ['data', { data: '2031-01-01' }]
+    ])('NEGA alterar %s', async (_nome, dados) => {
+      await assertFails(atualiza('fun', 'agAtrib', dados as Record<string, unknown>));
+    });
+
+    it('NEGA checklist com formato inválido', async () => {
+      await assertFails(atualiza('fun', 'agAtrib', { checklist: { fotos: {}, extra: 1 } }));
+      await assertFails(atualiza('fun', 'agAtrib', { checklist: { fotos: 'x' } }));
+    });
+  });
+
+  describe('atualização pelo gerente', () => {
+    it('avança o andamento no próprio condomínio e cancela "agendado"', async () => {
+      await assertSucceeds(atualiza('gui', 'ag1', { status: 'em_andamento' }));
+      await assertSucceeds(atualiza('gui', 'agEmAnd', { status: 'finalizado' }));
+      await assertSucceeds(atualiza('gui', 'agAtrib', { status: 'cancelado' }));
+    });
+
+    it('NEGA pular etapa, voltar, cancelar o que já começou', async () => {
+      await assertFails(atualiza('gui', 'ag1', { status: 'finalizado' }));
+      await assertFails(atualiza('gui', 'agEmAnd', { status: 'agendado' }));
+      await assertFails(atualiza('gui', 'agEmAnd', { status: 'cancelado' }));
+    });
+
+    it('atribui um funcionário de verdade, com o nome correto', async () => {
+      await assertSucceeds(atualiza('gui', 'ag1', { funcionarioId: 'fun', funcionarioNome: 'fun' }));
+      await assertSucceeds(atualiza('gui', 'agAtrib', { funcionarioId: null, funcionarioNome: null }));
+    });
+
+    it('NEGA atribuir quem não é funcionário, ou nome que não confere', async () => {
+      await assertFails(atualiza('gui', 'ag1', { funcionarioId: 'ana', funcionarioNome: 'ana' }));
+      await assertFails(atualiza('gui', 'ag1', { funcionarioId: 'inexistente', funcionarioNome: 'x' }));
+      await assertFails(atualiza('gui', 'ag1', { funcionarioId: 'fun', funcionarioNome: 'Outro nome' }));
+    });
+
+    it('grava fotos no checklist', async () => {
+      await assertSucceeds(
+        atualiza('gui', 'ag1', { 'checklist.fotos.antes_frente': { path: 'agendamentos/ag1/checklist/antes_frente.jpg', em: Timestamp.now() } })
+      );
+    });
+
+    it('NEGA agendamento de outro condomínio, e gerente sem condomínio', async () => {
+      await assertFails(atualiza('gui', 'ag2', { status: 'em_andamento' }));
+      await assertFails(atualiza('gabi', 'ag1', { status: 'em_andamento' }));
+      await assertFails(atualiza('gnulo', 'agNulo', { status: 'em_andamento' }));
+      await assertFails(atualiza('gnulo', 'ag1', { status: 'em_andamento' }));
+    });
+
+    it.each([
+      ['total', { total: 1 }],
+      ['itens', { itens: [] }],
+      ['preço de item', { 'itens.0.precoCentavos': 1 }],
+      ['clienteId', { clienteId: 'bia' }],
+      ['condominioId', { condominioId: 'c2' }],
+      ['avaliacao', nota()],
+      ['data', { data: '2031-01-01' }]
+    ])('NEGA alterar %s', async (_nome, dados) => {
+      await assertFails(atualiza('gui', 'ag1', dados as Record<string, unknown>));
+      await assertFails(atualiza('gui', 'agFim', dados as Record<string, unknown>));
+    });
+  });
+
+  describe('atualização por admin e por quem não tem papel', () => {
+    it('admin altera qualquer campo', async () => {
+      await assertSucceeds(atualiza('adm', 'ag1', { status: 'finalizado' }));
+      await assertSucceeds(atualiza('adm', 'ag1', { total: 1, condominioId: 'c2' }));
+      await assertSucceeds(atualiza('adm', 'agFim', nota()));
+    });
+
+    it('anônimo, insulfilm e gerente de outro condomínio: nada', async () => {
+      for (const uid of [null, 'ins']) {
+        await assertFails(atualiza(uid, 'ag1', { status: 'cancelado' }));
+        await assertFails(atualiza(uid, 'agFim', nota()));
+      }
     });
   });
 
   it('exclusão: só admin', async () => {
-    for (const uid of ['ana', 'gui', 'ins']) await assertFails(deleteDoc(doc(como(uid), 'agendamentos', 'ag1')));
-    await assertFails(deleteDoc(doc(como(null), 'agendamentos', 'ag1')));
-    await assertSucceeds(deleteDoc(doc(como('adm'), 'agendamentos', 'ag1')));
+    for (const uid of ['ana', 'gui', 'fun', 'ins']) await assertFails(deleteDoc(ref(uid, 'ag1')));
+    await assertFails(deleteDoc(ref(null, 'ag1')));
+    await assertSucceeds(deleteDoc(ref('adm', 'ag1')));
   });
 });
 
-describe('chats/{chatId}/mensagens (chatId = uid do cliente)', () => {
-  const msg = (extra = {}) => ({ de: 'cliente', texto: 'olá', hora: '10:05', lida: false, ...extra });
-  const ref = (uid: string | null, chat = 'ana', id = 'm1') => doc(como(uid), 'chats', chat, 'mensagens', id);
+describe('chats/{chatId} (chatId = uid do cliente)', () => {
+  const pai = (uid: string | null, chat = 'ana') => doc(como(uid), 'chats', chat);
 
-  describe('leitura', () => {
-    it('dono, gerente do condomínio e admin leem', async () => {
-      await assertSucceeds(getDoc(ref('ana')));
-      await assertSucceeds(getDoc(ref('gui')));
-      await assertSucceeds(getDoc(ref('adm')));
+  describe('documento da conversa', () => {
+    it('dono, gerente do condomínio e admin leem; estranhos não', async () => {
+      for (const uid of ['ana', 'gui', 'adm']) await assertSucceeds(getDoc(pai(uid)));
+      for (const uid of ['bia', 'gabi', 'gnulo', 'ins', 'fun', null]) await assertFails(getDoc(pai(uid)));
     });
 
-    it('outro cliente, gerente de outro condomínio, gerente sem condomínio, insulfilm e anônimo NÃO leem', async () => {
-      await assertFails(getDoc(ref('bia')));
-      await assertFails(getDoc(ref('gabi')));
-      await assertFails(getDoc(ref('gnulo')));
-      await assertFails(getDoc(ref('ins')));
-      await assertFails(getDoc(ref(null)));
+    it('lista de conversas: gerente só do próprio condomínio', async () => {
+      await assertSucceeds(getDocs(query(collection(como('gui'), 'chats'), where('condominioId', '==', 'c1'))));
+      await assertFails(getDocs(query(collection(como('gui'), 'chats'), where('condominioId', '==', 'c2'))));
+      await assertFails(getDocs(collection(como('ana'), 'chats')));
     });
 
-    it('listar a conversa: participantes sim, estranhos não', async () => {
-      await assertSucceeds(getDocs(collection(como('ana'), 'chats', 'ana', 'mensagens')));
-      await assertSucceeds(getDocs(collection(como('gui'), 'chats', 'ana', 'mensagens')));
-      await assertFails(getDocs(collection(como('bia'), 'chats', 'ana', 'mensagens')));
-      await assertFails(getDocs(collection(como('gabi'), 'chats', 'ana', 'mensagens')));
-    });
-  });
-
-  describe('criação', () => {
-    it('cliente escreve na própria conversa como "cliente"', async () => {
-      await assertSucceeds(setDoc(ref('ana', 'ana', 'n1'), msg()));
+    it('cliente abre a própria conversa com o condomínio do perfil', async () => {
+      await assertSucceeds(setDoc(pai('bia', 'bia'), { clienteId: 'bia', clienteNome: 'Bia', condominioId: 'c2' }));
     });
 
-    it('gerente do condomínio e admin escrevem como "gerente"', async () => {
-      await assertSucceeds(setDoc(ref('gui', 'ana', 'n2'), msg({ de: 'gerente' })));
-      await assertSucceeds(setDoc(ref('adm', 'ana', 'n3'), msg({ de: 'gerente' })));
+    it('NEGA abrir conversa de outro, com outro condomínio, ou por quem não é o dono', async () => {
+      await assertFails(setDoc(pai('bia', 'ana'), { clienteId: 'ana', clienteNome: 'x', condominioId: 'c1' }));
+      await assertFails(setDoc(pai('bia', 'bia'), { clienteId: 'bia', clienteNome: 'Bia', condominioId: 'c1' }));
+      await assertFails(setDoc(pai('bia', 'bia'), { clienteId: 'ana', clienteNome: 'Bia', condominioId: 'c2' }));
+      await assertFails(setDoc(pai('gui', 'ana'), { clienteId: 'ana', clienteNome: 'x', condominioId: 'c1' }));
+      await assertFails(setDoc(pai('adm', 'ana'), { clienteId: 'ana', clienteNome: 'x', condominioId: 'c1' }));
+      await assertFails(setDoc(pai('carlos', 'carlos'), { clienteId: 'carlos', clienteNome: 'x', condominioId: null }));
     });
 
-    it('NÃO escreve se passando pelo outro lado', async () => {
-      await assertFails(setDoc(ref('ana', 'ana', 'n4'), msg({ de: 'gerente' })));
-      await assertFails(setDoc(ref('gui', 'ana', 'n5'), msg({ de: 'cliente' })));
+    it('cliente atualiza o resumo e zera só o contador dele', async () => {
+      await assertSucceeds(updateDoc(pai('ana'), { ultimaMensagem: 'oi', ultimaHora: serverTimestamp(), naoLidasGerente: 1 }));
+      await assertSucceeds(updateDoc(pai('ana'), { naoLidasCliente: 0 }));
+      await assertFails(updateDoc(pai('ana'), { naoLidasCliente: 7 }));
     });
 
-    it('estranhos NÃO escrevem na conversa dos outros', async () => {
-      await assertFails(setDoc(ref('bia', 'ana', 'n6'), msg()));
-      await assertFails(setDoc(ref('gabi', 'ana', 'n7'), msg({ de: 'gerente' })));
-      await assertFails(setDoc(ref('gnulo', 'ana', 'n8'), msg({ de: 'gerente' })));
-      await assertFails(setDoc(ref('ins', 'ana', 'n9'), msg({ de: 'gerente' })));
-      await assertFails(setDoc(ref(null, 'ana', 'n10'), msg()));
+    it('gerente e admin atualizam o resumo e zeram só o contador do gerente', async () => {
+      await assertSucceeds(updateDoc(pai('gui'), { ultimaMensagem: 'ok', ultimaHora: serverTimestamp(), naoLidasCliente: 1 }));
+      await assertSucceeds(updateDoc(pai('gui'), { naoLidasGerente: 0 }));
+      await assertFails(updateDoc(pai('gui'), { naoLidasGerente: 7 }));
+      await assertSucceeds(updateDoc(pai('adm'), { naoLidasGerente: 3 }));
     });
 
-    it('valida o conteúdo: texto vazio, grande demais, campos extras', async () => {
-      await assertFails(setDoc(ref('ana', 'ana', 'v1'), msg({ texto: '' })));
-      await assertFails(setDoc(ref('ana', 'ana', 'v2'), msg({ texto: 'x'.repeat(2001) })));
-      await assertFails(setDoc(ref('ana', 'ana', 'v3'), msg({ admin: true })));
-      await assertSucceeds(setDoc(ref('ana', 'ana', 'v4'), msg({ texto: 'x'.repeat(2000) })));
+    it('NEGA trocar dono ou condomínio, e estranho escrever', async () => {
+      for (const uid of ['ana', 'gui', 'adm']) {
+        await assertFails(updateDoc(pai(uid), { clienteId: 'bia' }));
+        await assertFails(updateDoc(pai(uid), { condominioId: 'c2' }));
+      }
+      for (const uid of ['bia', 'gabi', 'gnulo', 'ins', 'fun', null]) {
+        await assertFails(updateDoc(pai(uid), { ultimaMensagem: 'x' }));
+      }
+    });
+
+    it('ninguém apaga a conversa', async () => {
+      for (const uid of ['ana', 'gui', 'adm']) await assertFails(deleteDoc(pai(uid)));
     });
   });
 
-  describe('atualização e exclusão', () => {
-    it('participante só marca como lida', async () => {
-      await assertSucceeds(updateDoc(ref('gui'), { lida: true }));
-      await assertFails(updateDoc(ref('gui'), { texto: 'editado' }));
-      await assertFails(updateDoc(ref('ana'), { de: 'gerente' }));
+  describe('mensagens', () => {
+    const msg = (extra = {}) => ({ de: 'cliente', texto: 'olá', hora: '10:05', lida: false, criadoEm: serverTimestamp(), ...extra });
+    const ref = (uid: string | null, chat = 'ana', id = 'm1') => doc(como(uid), 'chats', chat, 'mensagens', id);
+
+    describe('leitura', () => {
+      it('dono, gerente do condomínio e admin leem', async () => {
+        await assertSucceeds(getDoc(ref('ana')));
+        await assertSucceeds(getDoc(ref('gui')));
+        await assertSucceeds(getDoc(ref('adm')));
+      });
+
+      it('outro cliente, gerente de outro condomínio, sem condomínio, funcionário, insulfilm e anônimo NÃO leem', async () => {
+        for (const uid of ['bia', 'gabi', 'gnulo', 'fun', 'ins', null]) await assertFails(getDoc(ref(uid)));
+      });
+
+      it('listar a conversa: participantes sim, estranhos não', async () => {
+        await assertSucceeds(getDocs(collection(como('ana'), 'chats', 'ana', 'mensagens')));
+        await assertSucceeds(getDocs(collection(como('gui'), 'chats', 'ana', 'mensagens')));
+        await assertFails(getDocs(collection(como('bia'), 'chats', 'ana', 'mensagens')));
+        await assertFails(getDocs(collection(como('gabi'), 'chats', 'ana', 'mensagens')));
+      });
     });
 
-    it('estranho não marca como lida', async () => {
-      await assertFails(updateDoc(ref('bia'), { lida: true }));
-      await assertFails(updateDoc(ref(null), { lida: true }));
+    describe('criação', () => {
+      it('cliente escreve na própria conversa como "cliente"', async () => {
+        await assertSucceeds(setDoc(ref('ana', 'ana', 'n1'), msg()));
+      });
+
+      it('gerente do condomínio e admin escrevem como "gerente"', async () => {
+        await assertSucceeds(setDoc(ref('gui', 'ana', 'n2'), msg({ de: 'gerente' })));
+        await assertSucceeds(setDoc(ref('adm', 'ana', 'n3'), msg({ de: 'gerente' })));
+      });
+
+      it('NEGA se passar pelo outro lado', async () => {
+        await assertFails(setDoc(ref('ana', 'ana', 'n4'), msg({ de: 'gerente' })));
+        await assertFails(setDoc(ref('gui', 'ana', 'n5'), msg({ de: 'cliente' })));
+        await assertFails(setDoc(ref('adm', 'ana', 'n5b'), msg({ de: 'cliente' })));
+      });
+
+      it('estranhos NÃO escrevem na conversa dos outros', async () => {
+        await assertFails(setDoc(ref('bia', 'ana', 'n6'), msg()));
+        await assertFails(setDoc(ref('gabi', 'ana', 'n7'), msg({ de: 'gerente' })));
+        await assertFails(setDoc(ref('gnulo', 'ana', 'n8'), msg({ de: 'gerente' })));
+        await assertFails(setDoc(ref('ins', 'ana', 'n9'), msg({ de: 'gerente' })));
+        await assertFails(setDoc(ref('fun', 'ana', 'n9b'), msg({ de: 'gerente' })));
+        await assertFails(setDoc(ref(null, 'ana', 'n10'), msg()));
+      });
+
+      it('valida o conteúdo: texto vazio, grande demais, campos extras, carimbo falso', async () => {
+        await assertFails(setDoc(ref('ana', 'ana', 'v1'), msg({ texto: '' })));
+        await assertFails(setDoc(ref('ana', 'ana', 'v2'), msg({ texto: 'x'.repeat(2001) })));
+        await assertFails(setDoc(ref('ana', 'ana', 'v3'), msg({ admin: true })));
+        await assertFails(setDoc(ref('ana', 'ana', 'v5'), msg({ criadoEm: Timestamp.fromDate(new Date(2020, 1, 1)) })));
+        await assertSucceeds(setDoc(ref('ana', 'ana', 'v4'), msg({ texto: 'x'.repeat(2000) })));
+      });
     });
 
-    it('ninguém apaga mensagem', async () => {
-      for (const uid of ['ana', 'gui', 'adm']) await assertFails(deleteDoc(ref(uid)));
+    describe('atualização e exclusão', () => {
+      it('participante só marca como lida', async () => {
+        await assertSucceeds(updateDoc(ref('gui'), { lida: true }));
+        await assertFails(updateDoc(ref('gui'), { texto: 'editado' }));
+        await assertFails(updateDoc(ref('ana'), { de: 'gerente' }));
+      });
+
+      it('estranho não marca como lida', async () => {
+        await assertFails(updateDoc(ref('bia'), { lida: true }));
+        await assertFails(updateDoc(ref(null), { lida: true }));
+      });
+
+      it('ninguém apaga mensagem', async () => {
+        for (const uid of ['ana', 'gui', 'adm']) await assertFails(deleteDoc(ref(uid)));
+      });
     });
   });
 });
@@ -385,10 +716,6 @@ describe('negar tudo que não está liberado', () => {
     await assertFails(getDocs(collection(db, 'segredos')));
   });
 
-  it('o chat sem a subcoleção "mensagens" também é negado', async () => {
-    await assertFails(setDoc(doc(como('adm'), 'chats', 'ana'), { a: 1 }));
-    await assertFails(getDoc(doc(como('adm'), 'chats', 'ana')));
-  });
 });
 
 describe('cadastro de condomínios pelo admin (tela /admin)', () => {
@@ -400,7 +727,7 @@ describe('cadastro de condomínios pelo admin (tela /admin)', () => {
     await assertSucceeds(deleteDoc(doc(como('adm'), 'condominios', 'torre-nova')));
   });
 
-  it.each(['anonimo', 'cliente', 'gerente', 'insulfilm'] as const)('%s não cria, edita nem remove', async (papel) => {
+  it.each(['anonimo', 'cliente', 'gerente', 'funcionario', 'insulfilm'] as const)('%s não cria, edita nem remove', async (papel) => {
     const db = como(quem[papel]);
     await assertFails(setDoc(doc(db, 'condominios', 'torre-nova'), dados));
     await assertFails(updateDoc(doc(db, 'condominios', 'c1'), { nome: 'Invadido', nomeNormalizado: 'invadido' }));

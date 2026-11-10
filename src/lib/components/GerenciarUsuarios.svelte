@@ -16,6 +16,7 @@
   const papeis: { id: Papel; nome: string }[] = [
     { id: 'cliente', nome: 'Cliente' },
     { id: 'gerente', nome: 'Gerente' },
+    { id: 'funcionario', nome: 'Funcionário' },
     { id: 'admin', nome: 'Administrador' },
     { id: 'insulfilm', nome: 'Insulfilm' }
   ];

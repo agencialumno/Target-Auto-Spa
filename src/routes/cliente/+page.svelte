@@ -2,9 +2,10 @@
     import Icone from "$lib/components/Icone.svelte";
     import BotaoChat from "$lib/components/BotaoChat.svelte";
     import { app } from "$lib/app.svelte";
-    import { servicos, brl } from "$lib/mock";
+    import { brl } from "$lib/mock";
+    import { servicos, contratavel } from "$lib/catalogo.svelte";
 
-    const destaques = servicos.filter((s) => !s.oculto).slice(0, 5);
+    const destaques = servicos.filter((s) => !s.oculto && contratavel(s)).slice(0, 5);
 
     const pct = $derived(
         app.proximo
@@ -20,7 +21,7 @@
                 <span class="pino"><Icone nome="pin" tamanho={18} /></span>
                 <div>
                     <small>Seu condomínio</small>
-                    <strong>Residencial Exemplo</strong>
+                    <strong>{app.condominioNome || 'Seu condomínio'}</strong>
                 </div>
             </div>
             <div class="acoes">
@@ -91,8 +92,8 @@
                     {brl(app.gasto)} de {brl(app.proximo.min)} nos últimos 90 dias
                     para chegar à {app.proximo.nome}
                 {:else}
-                    Você está no nível máximo. Desconto de {app.nivel.desconto}%
-                    em todos os serviços.
+                    Você está no nível máximo.
+
                 {/if}
             </small>
         </a>
