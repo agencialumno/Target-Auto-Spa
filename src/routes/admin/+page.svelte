@@ -1,75 +1,55 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
   import { authStore } from '$lib/auth.svelte';
-  import { app, rotuloStatus, ordemStatus } from '$lib/app.svelte';
-  import { brl } from '$lib/mock';
-  import {
-    servicos,
-    alternarServico,
-    publicarCatalogoInicial,
-    salvarPrecoServico
-  } from '$lib/catalogo.svelte';
-  import { brlCentavos, nomesItens } from '$lib/agendamentos';
-  import { dataCurta } from '$lib/formato';
-  import GerenciarUsuarios from '$lib/components/GerenciarUsuarios.svelte';
-  import GerenciarCondominios from '$lib/components/GerenciarCondominios.svelte';
+  import { app } from '$lib/app.svelte';
+  import { servicos } from '$lib/catalogo.svelte';
+  import { brlCentavos } from '$lib/agendamentos';
+  import { contarCondominios, contarUsuarios, plural } from '$lib/admin-resumo';
 
-  type Aba = 'resumo' | 'agendamentos' | 'precos' | 'avaliacoes' | 'usuarios' | 'condominios';
+  let usuarios = $state<number | null>(null);
+  let condominios = $state<number | null>(null);
 
-  const abas: { id: Aba; nome: string }[] = [
-    { id: 'resumo', nome: 'Resumo' },
-    { id: 'agendamentos', nome: 'Agendamentos' },
-    { id: 'precos', nome: 'Preços' },
-    { id: 'avaliacoes', nome: 'Avaliações' },
-    { id: 'usuarios', nome: 'Usuários' },
-    { id: 'condominios', nome: 'Condomínios' }
-  ];
+  $effect(() => {
+    contarUsuarios().then((n) => (usuarios = n)).catch(() => {});
+    contarCondominios().then((n) => (condominios = n)).catch(() => {});
+  });
 
-  let aba = $state<Aba>('resumo');
+  const notaMedia = $derived(
+    app.notaMedia === null ? '-' : app.notaMedia.toFixed(1).replace('.', ',')
+  );
 
-  const total = $derived(app.agendamentos.length);
-  const finalizados = $derived(app.agendamentos.filter((a) => a.status === 'finalizado').length);
-  const ticket = $derived(finalizados ? app.receita / finalizados : 0);
-  const porStatus = (st: string) => app.agendamentos.filter((a) => a.status === st).length;
-
-  const nomes = nomesItens;
-
-  // ---- Preços (catálogo no Firestore) ----
-  let msgPrecos = $state('');
-  let editando = $state<string | null>(null);
-  let valorEdicao = $state('');
-  let ocupado = $state(false);
-  const naoPublicados = $derived(servicos.filter((s) => !s.publicado).length);
-
-  async function tentar(fn: () => Promise<unknown>, ok: string) {
-    ocupado = true;
-    msgPrecos = '';
-    try {
-      await fn();
-      msgPrecos = ok;
-    } catch (e) {
-      msgPrecos = `Não foi possível salvar (${(e as { code?: string })?.code ?? (e as Error)?.message ?? 'erro'}).`;
-    } finally {
-      ocupado = false;
+  const cartoes = $derived([
+    {
+      href: '/admin/agendamentos',
+      icone: 'calendar',
+      titulo: 'Agendamentos',
+      contexto: plural(app.agendamentos.length, 'agendamento', 'agendamentos')
+    },
+    {
+      href: '/admin/precos',
+      icone: 'sparkle',
+      titulo: 'Preços',
+      contexto: plural(servicos.length, 'serviço', 'serviços')
+    },
+    {
+      href: '/admin/avaliacoes',
+      icone: 'star',
+      titulo: 'Avaliações',
+      contexto: plural(app.avaliados.length, 'avaliação', 'avaliações')
+    },
+    {
+      href: '/admin/usuarios',
+      icone: 'user',
+      titulo: 'Usuários',
+      contexto: usuarios === null ? 'Carregando...' : plural(usuarios, 'usuário', 'usuários')
+    },
+    {
+      href: '/admin/condominios',
+      icone: 'home',
+      titulo: 'Condomínios',
+      contexto: condominios === null ? 'Carregando...' : plural(condominios, 'condomínio', 'condomínios')
     }
-  }
-
-  const publicar = () =>
-    tentar(async () => {
-      const n = await publicarCatalogoInicial();
-      msgPrecos = `${n} serviço(s) publicado(s).`;
-    }, '');
-
-  function editar(id: string, precoCentavos: number) {
-    editando = id;
-    valorEdicao = (precoCentavos / 100).toFixed(2).replace('.', ',');
-  }
-
-  async function salvarPreco(id: string) {
-    const centavos = Math.round(Number(valorEdicao.replace(/\./g, '').replace(',', '.')) * 100);
-    await tentar(() => salvarPrecoServico(id, centavos), 'Preço salvo.');
-    if (!msgPrecos.startsWith('Não')) editando = null;
-  }
+  ]);
 </script>
 
 <div class="pagina">
@@ -89,231 +69,98 @@
   <section class="folha corpo">
     <div class="folha-alca"></div>
 
-    <div class="chips">
-      {#each abas as a}
-        <button class="chip" class:on={aba === a.id} onclick={() => (aba = a.id)}>{a.nome}</button>
-      {/each}
+    <div class="resumo card" aria-label="Resumo">
+      <div>
+        <small>Receita</small>
+        <strong>{brlCentavos(app.receita)}</strong>
+      </div>
+      <div>
+        <small>Agendamentos</small>
+        <strong>{app.agendamentos.length}</strong>
+      </div>
+      <div>
+        <small>Nota média</small>
+        <strong>{notaMedia}</strong>
+      </div>
     </div>
+    <p class="nota">Receita considera só atendimentos finalizados.</p>
 
-    {#if aba === 'condominios'}
-      <GerenciarCondominios />
-    {:else if aba === 'usuarios'}
-      <GerenciarUsuarios />
-    {:else if aba === 'resumo'}
-      <div class="kpis">
-        <div class="kpi card">
-          <small>Receita</small>
-          <strong>{brlCentavos(app.receita)}</strong>
-        </div>
-        <div class="kpi card">
-          <small>Agendamentos</small>
-          <strong>{total}</strong>
-        </div>
-        <div class="kpi card">
-          <small>Ticket médio</small>
-          <strong>{brlCentavos(ticket)}</strong>
-        </div>
-        <div class="kpi card">
-          <small>Nota média</small>
-          <strong>{app.notaMedia === null ? '-' : app.notaMedia.toFixed(1).replace('.', ',')}</strong>
-        </div>
-        <div class="kpi card">
-          <small>NPS</small>
-          <strong>{app.nps === null ? '-' : app.nps}</strong>
-        </div>
-      </div>
-
-      <h2>Por status</h2>
-      <div class="status-linha">
-        {#each ordemStatus as st}
-          <div class="card status">
-            <strong>{porStatus(st)}</strong>
-            <small>{rotuloStatus[st]}</small>
-          </div>
-        {/each}
-      </div>
-      <p class="nota">Receita e ticket médio consideram só atendimentos finalizados.</p>
-    {:else if aba === 'agendamentos'}
-      {#if app.agendamentos.length === 0}
-        <p class="vazio">Nenhum agendamento ainda.</p>
-      {/if}
-      <div class="lista">
-        {#each app.agendamentos as a (a.id)}
-          <a class="item card" href={`/admin/agendamentos/${a.id}`}>
-            <span class="textos">
-              <strong>{nomes(a.itens)}</strong>
-              <small>
-                {dataCurta(a.data)} às {a.hora} · {a.veiculo.placa || '-'} · {brlCentavos(a.total)}
-              </small>
-              <span class="tags">
-                <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
-                {#if a.externo}
-                  <span class="selo-status ext">Insulfilm</span>
-                {/if}
-              </span>
-            </span>
-            <Icone nome="chevron" tamanho={20} />
-          </a>
-        {/each}
-      </div>
-    {:else if aba === 'precos'}
-      <h2>Serviços</h2>
-      {#if naoPublicados > 0}
-        <div class="card aviso-pub">
-          <p>{naoPublicados} serviço(s) ainda não estão no Firestore e não podem ser contratados.</p>
-          <button class="btn-primario" onclick={publicar} disabled={ocupado}>Publicar catálogo inicial</button>
-        </div>
-      {/if}
-      {#if msgPrecos}<p class="nota" role="status">{msgPrecos}</p>{/if}
-      <div class="tabela card">
-        {#each servicos as s (s.id)}
-          <div class="linha-preco">
-            <span>
-              <strong>{s.nome}</strong>
-              <small>
-                {s.duracao} min{s.avulso ? ' · agenda separada' : ''}{s.publicado
-                  ? s.ativo === false ? ' · desativado' : ''
-                  : ' · não publicado'}
-              </small>
-            </span>
-            {#if editando === s.id}
-              <span class="edicao">
-                <input inputmode="decimal" bind:value={valorEdicao} aria-label={`Novo preço de ${s.nome}`} />
-                <button onclick={() => salvarPreco(s.id)} disabled={ocupado}>Salvar</button>
-                <button onclick={() => (editando = null)}>Cancelar</button>
-              </span>
-            {:else}
-              <b>{brl(s.preco)}</b>
-              {#if s.publicado}
-                <button class="mini" onclick={() => editar(s.id, s.precoCentavos)}>Editar</button>
-                <button class="mini" onclick={() => tentar(() => alternarServico(s.id, s.ativo === false), 'Salvo.')} disabled={ocupado}>
-                  {s.ativo === false ? 'Ativar' : 'Desativar'}
-                </button>
-              {/if}
-            {/if}
-          </div>
-        {/each}
-      </div>
-      <p class="nota">
-        O preço do Firestore é o que vale: os agendamentos gravam o preço do serviço no momento da
-        contratação.
-      </p>
-    {:else}
-      {#if app.avaliados.length === 0}
-        <p class="vazio">Nenhuma avaliação ainda. Finalize um serviço como cliente e avalie.</p>
-      {/if}
-      <div class="lista">
-        {#each app.avaliados as a (a.id)}
-          <div class="card aval">
-            <strong>{nomes(a.itens)}</strong>
-            <small>
-              Nota {a.avaliacao?.nota}/5{#if typeof a.avaliacao?.nps === 'number'} · Indicação {a.avaliacao?.nps}/10{/if}
-            </small>
-            {#if a.avaliacao?.comentario}
-              <p>“{a.avaliacao.comentario}”</p>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    {/if}
+    <nav class="cartoes" aria-label="Seções do painel">
+      {#each cartoes as c (c.href)}
+        <a class="secao card" href={c.href}>
+          <span class="icone"><Icone nome={c.icone} tamanho={26} /></span>
+          <span class="textos">
+            <strong>{c.titulo}</strong>
+            <small>{c.contexto}</small>
+          </span>
+          <Icone nome="chevron" tamanho={20} />
+        </a>
+      {/each}
+    </nav>
   </section>
 </div>
 
 <style>
-  .aviso-pub {
-    padding: 14px 16px;
-    margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-size: 0.9rem;
-  }
-
-  .edicao {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .edicao input {
-    width: 90px;
-    padding: 6px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--card-borda);
-    font: inherit;
-  }
-
-  .mini {
-    margin-left: 8px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--card-borda);
-    background: var(--white);
-    font-size: 0.72rem;
-  }
-
   .corpo {
     padding-bottom: calc(32px + var(--safe-bottom));
   }
 
-  h2 {
-    font-size: 1.05rem;
-    margin: 22px 0 10px;
-  }
-
-  .kpis {
+  .resumo {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 8px;
+    padding: 14px 16px;
   }
 
-  .kpi {
-    padding: 14px;
+  .resumo div {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
-  .kpi small,
-  .status small {
+  .resumo small {
     color: var(--texto-suave);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
   }
 
-  .kpi strong {
-    font-size: 1.25rem;
+  .resumo strong {
+    font-size: 1.05rem;
+    overflow-wrap: anywhere;
   }
 
-  .status-linha {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+  .nota {
+    margin: 8px 2px 0;
+    font-size: 0.72rem;
+    color: var(--texto-suave);
   }
 
-  .status {
-    padding: 12px 6px;
-    text-align: center;
+  .cartoes {
     display: flex;
     flex-direction: column;
+    gap: 12px;
+    margin-top: 20px;
   }
 
-  .status strong {
-    font-size: 1.3rem;
-    color: var(--teal-700);
-  }
-
-  .lista {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .item {
+  .secao {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px;
+    gap: 14px;
+    min-height: 76px;
+    padding: 16px;
     color: var(--texto);
+    text-decoration: none;
+  }
+
+  .icone {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: var(--navy-900);
+    color: var(--gold-500);
   }
 
   .textos {
@@ -322,101 +169,14 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    line-height: 1.3;
   }
 
-  .textos small,
-  .aval small {
+  .textos strong {
+    font-size: 1.05rem;
+  }
+
+  .textos small {
     color: var(--texto-suave);
-    font-size: 0.8rem;
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
-
-  .selo-status {
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    background: var(--info-fundo);
-    color: var(--teal-700);
-  }
-
-  .selo-status.em_andamento {
-    background: var(--aviso-fundo);
-    color: var(--aviso-texto);
-  }
-
-  .selo-status.finalizado {
-    background: var(--ok-fundo);
-    color: var(--ok-texto);
-  }
-
-  .selo-status.ext {
-    background: #f0eafa;
-    color: #5b3f99;
-  }
-
-  .tabela {
-    padding: 4px 16px;
-  }
-
-  .linha-preco {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--card-borda);
-  }
-
-  .linha-preco:last-child {
-    border-bottom: none;
-  }
-
-  .linha-preco span {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.3;
-    min-width: 0;
-  }
-
-  .linha-preco small {
-    color: var(--texto-suave);
-    font-size: 0.76rem;
-  }
-
-  .linha-preco b {
-    flex: none;
-  }
-
-  .aval {
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .aval p {
-    margin-top: 4px;
-    font-size: 0.9rem;
-    color: var(--texto-suave);
-  }
-
-  .nota {
-    margin-top: 12px;
-    font-size: 0.75rem;
-    color: var(--texto-suave);
-  }
-
-  .vazio {
-    text-align: center;
-    color: var(--texto-suave);
-    padding: 24px 0;
+    font-size: 0.82rem;
   }
 </style>

@@ -118,17 +118,24 @@
   }
 </script>
 
-<div class="topo">
-  <h2>Condomínios ({condominios.length})</h2>
-  <button class="btn-primario novo" onclick={abrirNovo}>Novo condomínio</button>
-  <div class="caixa-ins">
-    <label class="campo">
-      <span>Insulfilm: vagas por horário (todos os condomínios)</span>
-      <input type="number" min="1" max={CAPACIDADE_MAX} step="1" bind:value={capIns} aria-label="Capacidade do insulfilm" />
-    </label>
-    <button class="sec" onclick={salvarCapIns} disabled={capInsSalvando || !capacidadeValida(Number(capIns))}>Salvar</button>
-    {#if capInsMsg}<small role="status">{capInsMsg}</small>{/if}
+<section class="card cartao-ins" aria-label="Insulfilm">
+  <h3>Insulfilm</h3>
+  <p>Quantos atendimentos de insulfilm cabem no mesmo horário, valendo para todos os condomínios.</p>
+  <label class="campo" for="cap-insulfilm">
+    <span>Vagas por horário</span>
+  </label>
+  <div class="linha-ins">
+    <input id="cap-insulfilm" type="number" min="1" max={CAPACIDADE_MAX} step="1" inputmode="numeric" bind:value={capIns} aria-label="Capacidade do insulfilm" />
+    <button class="btn-primario" onclick={salvarCapIns} disabled={capInsSalvando || !capacidadeValida(Number(capIns))}>
+      {capInsSalvando ? 'Salvando...' : 'Salvar'}
+    </button>
   </div>
+  {#if capInsMsg}<small role="status">{capInsMsg}</small>{/if}
+</section>
+
+<div class="topo">
+  <h2>Lista ({condominios.length})</h2>
+  <button class="btn-primario novo" onclick={abrirNovo}>Novo condomínio</button>
 </div>
 
 {#if carregando}
@@ -202,12 +209,49 @@
 {/if}
 
 <style>
-  .caixa-ins {
+  .cartao-ins {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    margin-bottom: 22px;
+  }
+
+  .cartao-ins h3 {
+    font-size: 1.05rem;
+  }
+
+  .cartao-ins p {
+    font-size: 0.85rem;
+    color: var(--texto-suave);
+    line-height: 1.35;
+  }
+
+  .cartao-ins small {
+    color: var(--texto-suave);
+  }
+
+  .linha-ins {
+    display: flex;
     gap: 10px;
-    margin: 12px 0;
+    align-items: stretch;
+  }
+
+  .linha-ins input {
+    flex: 1;
+    min-width: 0;
+    min-height: 48px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--card-borda);
+    font: inherit;
+    font-size: 16px; /* evita o zoom automático do iOS ao focar */
+  }
+
+  .linha-ins button {
+    width: auto;
+    min-height: 48px;
+    padding: 0 22px;
   }
 
   .topo {

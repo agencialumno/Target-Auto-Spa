@@ -49,7 +49,7 @@ async function abrir() {
 describe('lista', () => {
   it('mostra nome, moradores, gerente(s) e agendamentos', async () => {
     await abrir();
-    expect(screen.getByText('Condomínios (2)')).toBeInTheDocument();
+    expect(screen.getByText('Lista (2)')).toBeInTheDocument();
     expect(screen.getByText('2 moradores · 1 agendamento')).toBeInTheDocument();
     expect(screen.getByText(/Gerente:\s*Gui/)).toBeInTheDocument();
     expect(screen.getByText('0 moradores · 0 agendamentos')).toBeInTheDocument();

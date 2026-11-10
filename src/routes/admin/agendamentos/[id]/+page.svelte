@@ -3,4 +3,4 @@
   import DetalheOperacao from '$lib/components/DetalheOperacao.svelte';
 </script>
 
-<DetalheOperacao id={page.params.id ?? ''} voltar="/admin" />
+<DetalheOperacao id={page.params.id ?? ''} voltar="/admin/agendamentos" />
