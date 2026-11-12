@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import Icone from '$lib/components/Icone.svelte';
   import BotaoChat from '$lib/components/BotaoChat.svelte';
+  import { FALE_COM_GERENTE } from '$lib/textos';
   import { app } from '$lib/app.svelte';
   import { authStore } from '$lib/auth.svelte';
   import { reserva } from '$lib/reserva.svelte';
@@ -68,7 +69,7 @@
     <h2>Ajuda</h2>
     <a class="link-linha card" href="/cliente/chat">
       <Icone nome="chat" />
-      <span>Falar com o gerente do condomínio</span>
+      <span>{FALE_COM_GERENTE}</span>
       {#if app.msgNaoLidasCliente > 0}
         <b class="novas">{app.msgNaoLidasCliente}</b>
       {/if}

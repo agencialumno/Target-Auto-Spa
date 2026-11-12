@@ -95,7 +95,7 @@
             {#if servico.categoria === "lavagem" || servico.categoria === "higienizacao"}
                 <p class="selo">
                     <Icone nome="leaf" tamanho={18} />
-                    Produtos biodegradáveis, sem soda cáustica.
+                    Produtos biodegradáveis.
                 </p>
             {/if}
 

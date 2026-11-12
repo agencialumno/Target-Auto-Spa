@@ -7,7 +7,6 @@
   import { chamarApi } from '$lib/api';
   import { authStore, type Papel } from '$lib/auth.svelte';
   import Icone from '$lib/components/Icone.svelte';
-  import UsuarioDetalhe from '$lib/components/UsuarioDetalhe.svelte';
 
   type Usuario = {
     uid: string;
@@ -49,7 +48,6 @@
   const nomeCondominio = (id: string | null) =>
     id ? (opcoesCondominio.find((c) => c.id === id)?.nome ?? id) : '';
 
-  let detalhando = $state<Usuario | null>(null);
   let removendo = $state<Usuario | null>(null);
   let apagando = $state(false);
   let erroRemover = $state('');
@@ -216,17 +214,14 @@
   <div class="lista">
     {#each usuarios as u (u.uid)}
       <div class="linha card">
-        <div class="dados">
+        <a class="dados" href={`/admin/usuarios/${u.uid}`} aria-label={`Abrir ${u.nome || u.email}`}>
           <strong>{u.nome || '(sem nome)'}</strong>
           <small>{u.email}</small>
           <small>
             <span class="papel">{nomePapel(u.role)}{#if u.especialidade === 'insulfilm'} · Insulfilm{/if}</span>
             {#if u.condominioId}· {nomeCondominio(u.condominioId)}{/if}
           </small>
-        </div>
-        <button class="sec" aria-label={`Detalhes de ${u.nome || u.email}`} onclick={() => (detalhando = u)}>
-          Detalhes
-        </button>
+        </a>
         {#if u.uid !== authStore.usuario?.uid}
           {#if u.role === 'cliente' || u.role === 'gerente'}
             <button class="sec" aria-label={`Condomínio de ${u.nome || u.email}`} onclick={() => abrirVinculo(u)}>
@@ -246,15 +241,6 @@
       </div>
     {/each}
   </div>
-{/if}
-
-{#if detalhando}
-  <UsuarioDetalhe
-    usuario={detalhando}
-    papel={nomePapel(detalhando.role)}
-    condominio={nomeCondominio(detalhando.condominioId)}
-    onfechar={() => (detalhando = null)}
-  />
 {/if}
 
 {#if formAberto}
@@ -388,7 +374,12 @@
   .dados {
     display: flex;
     flex-direction: column;
+    flex: 1;
     min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    color: inherit;
+    text-decoration: none;
   }
 
   .dados small {
