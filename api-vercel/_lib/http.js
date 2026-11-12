@@ -118,35 +118,61 @@ export function endpoint(
 // devolve detalhes internos.
 const limitadorWebhook = criarLimitador({ max: 600 });
 
-export function endpointWebhook({ obterDeps = dependencias, limitador = limitadorWebhook, env = process.env, processar } = {}) {
+// Uma linha por requisição: id do evento, tipo, resultado e status HTTP. Só valores que passam por
+// regex entram (nunca token, CPF, e-mail, nome ou o corpo do evento).
+const LOG_ID_RE = /^[A-Za-z0-9_&.:=-]{1,128}$/;
+const LOG_TIPO_RE = /^[A-Z_]{1,60}$/;
+export function linhaLogWebhook(corpo, http, resultado) {
+  const id = typeof corpo?.id === 'string' && LOG_ID_RE.test(corpo.id) ? corpo.id : '-';
+  const tipo = typeof corpo?.event === 'string' && LOG_TIPO_RE.test(corpo.event) ? corpo.event : '-';
+  return `webhook evento=${id} tipo=${tipo} resultado=${resultado} http=${http}`;
+}
+
+// Lê o corpo sem deixar um JSON quebrado virar 400/500 (a Vercel lança ao acessar req.body)
+function corpoSeguro(req) {
+  try {
+    return req.body;
+  } catch {
+    return undefined;
+  }
+}
+
+// Contrato: método errado é 405; sem configuração 503; token inválido 401. Depois do token, tudo é 200
+// (tipo desconhecido, repetido, sem agendamento, fora de ordem, corpo estranho); só falha de gravação é 5xx.
+export function endpointWebhook({ obterDeps = dependencias, limitador = limitadorWebhook, env = process.env, processar, log = console.log } = {}) {
   return async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    const responder = (http, corpo, resultado) => {
+      log(linhaLogWebhook(corpoSeguro(req), http, resultado));
+      return res.status(http).json(corpo);
+    };
     if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
+
+    const { tokenValido } = await import('./webhook-asaas.js');
+    if (!env.ASAAS_WEBHOOK_TOKEN) return responder(503, { erro: 'Webhook não configurado.' }, 'sem_config');
+    if (!tokenValido(req.headers['asaas-access-token'], env.ASAAS_WEBHOOK_TOKEN)) {
+      return responder(401, { erro: 'Não autorizado.' }, 'token_invalido');
+    }
 
     if (!limitador(ipDe(req))) {
       res.setHeader('Retry-After', '60');
-      return res.status(429).json({ erro: 'Muitas requisições.' });
+      return responder(429, { erro: 'Muitas requisições.' }, 'limite');
     }
     const tipo = String(req.headers['content-type'] ?? '');
-    if (!tipo.toLowerCase().startsWith('application/json')) return res.status(415).json({ erro: 'Envie JSON.' });
-    if (Number(req.headers['content-length'] ?? 0) > 65536) return res.status(413).json({ erro: 'Requisição grande demais.' });
-
-    // Token errado ou ausente responde antes de iniciar o Firebase Admin; sem a variável, recusa tudo
-    const { tokenValido } = await import('./webhook-asaas.js');
-    if (!env.ASAAS_WEBHOOK_TOKEN) return res.status(503).json({ erro: 'Webhook não configurado.' });
-    if (!tokenValido(req.headers['asaas-access-token'], env.ASAAS_WEBHOOK_TOKEN)) {
-      return res.status(401).json({ erro: 'Não autorizado.' });
-    }
+    if (!tipo.toLowerCase().startsWith('application/json')) return responder(200, { ok: true, resultado: 'tipo_ignorado' }, 'tipo_ignorado');
+    if (Number(req.headers['content-length'] ?? 0) > 65536) return responder(200, { ok: true, resultado: 'grande_demais' }, 'grande_demais');
+    const corpo = corpoSeguro(req);
+    if (corpo === undefined) return responder(200, { ok: true, resultado: 'corpo_ilegivel' }, 'corpo_ilegivel');
 
     try {
       const logica = processar ?? (await import('./webhook-asaas.js')).processarWebhook;
-      const r = await logica({ ...obterDeps(), env, agora: () => new Date() }, req.headers, req.body);
-      return res.status(r.status).json(r.corpo);
+      const r = await logica({ ...obterDeps(), env, agora: () => new Date() }, req.headers, corpo);
+      return responder(r.status, r.corpo, r.corpo?.resultado ?? (r.status === 200 ? 'ok' : 'recusado'));
     } catch (e) {
-      // Só o nome do erro vai para o log: nunca o corpo do evento (pode ter dados pessoais)
+      // Falha real (gravação/banco): 5xx para o Asaas tentar de novo. Só o nome do erro vai para o log.
       console.error('erro no webhook:', e?.name);
-      return res.status(500).json({ erro: 'Erro interno.' });
+      return responder(500, { erro: 'Erro interno.' }, 'erro_interno');
     }
   };
 }

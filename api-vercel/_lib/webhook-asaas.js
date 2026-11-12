@@ -3,7 +3,8 @@
 // nada de CPF, e-mail ou endereço gravado ou registrado em log. Só a lógica; sem rede.
 import { createHash, timingSafeEqual } from 'node:crypto';
 
-const EVENTO_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+// O Asaas documenta ids como "evt_05b708f9...&368604920": o "&" faz parte do id (sem ele o evento real virava 400)
+export const EVENTO_ID_RE = /^[A-Za-z0-9_&.:=-]{1,128}$/;
 const AGENDAMENTO_RE = /^[A-Za-z0-9]{1,64}$/;
 const CUSTOMER_RE = /^cus_[A-Za-z0-9]{1,64}$/;
 const VAGA_RE = /^[A-Za-z0-9_:-]{1,200}$/;
@@ -42,6 +43,8 @@ export function idDoCliente(co) {
 export function decidir(tipo, ag, { checkoutId, valor, agora }) {
   const p = ag.pagamento ?? {};
   const jaPago = p.status === 'pago' || p.status === 'pago_apos_cancelamento';
+  // Pago com valor divergente também é dinheiro recebido: expirar/cancelar nunca pode apagar isso
+  const recebido = jaPago || p.status === 'divergente';
 
   if (tipo === 'CHECKOUT_PAID') {
     if (jaPago) return { resultado: 'ja_pago' };
@@ -64,7 +67,7 @@ export function decidir(tipo, ag, { checkoutId, valor, agora }) {
   }
 
   // EXPIRED / CANCELED
-  if (jaPago) return { resultado: 'ignorado_pago' };
+  if (recebido) return { resultado: 'ignorado_pago' };
   // Evento de um Checkout antigo (já trocado por outro): não mexe no agendamento
   if (checkoutId && p.checkoutId && checkoutId !== p.checkoutId) return { resultado: 'ignorado_checkout_antigo' };
 
@@ -90,11 +93,13 @@ export async function processarWebhook(deps, headers, corpo) {
   if (!esperado) return { status: 503, corpo: { erro: 'Webhook não configurado.' } };
   if (!tokenValido(headers?.['asaas-access-token'], esperado)) return { status: 401, corpo: { erro: 'Não autorizado.' } };
 
-  if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) return { status: 400, corpo: { erro: 'Corpo inválido.' } };
+  // Contrato: depois do token, NUNCA 4xx (15 falhas seguidas pausam a fila do Asaas). Corpo ou evento
+  // fora do formato é registrado em log pelo handler e respondido com 200, sem gravar nada.
+  if (!corpo || typeof corpo !== 'object' || Array.isArray(corpo)) return { status: 200, corpo: { ok: true, resultado: 'corpo_invalido' } };
   const eventoId = corpo.id;
   const tipo = corpo.event;
   if (typeof eventoId !== 'string' || !EVENTO_ID_RE.test(eventoId) || typeof tipo !== 'string' || tipo.length > 60) {
-    return { status: 400, corpo: { erro: 'Evento inválido.' } };
+    return { status: 200, corpo: { ok: true, resultado: 'evento_invalido' } };
   }
 
   const co = corpo.checkout && typeof corpo.checkout === 'object' ? corpo.checkout : null;

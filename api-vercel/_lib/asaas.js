@@ -97,3 +97,28 @@ export async function criarCheckoutAsaas(cfg, payload, fetchImpl = fetch) {
   if (!/(^|\.)asaas\.com$/.test(host)) throw new ErroHttp(502, 'Resposta inesperada do serviço de pagamento.');
   return { id: dados.id, link: dados.link };
 }
+
+// Cobranças geradas por um Checkout (filtro documentado checkoutSession). Devolve só o que interessa:
+// situação, valor em centavos e id do cliente. Nunca registra o corpo da resposta.
+export async function listarPagamentosDoCheckout(cfg, checkoutId, fetchImpl = fetch) {
+  let resposta;
+  try {
+    resposta = await fetchImpl(`${cfg.base}/payments?checkoutSession=${encodeURIComponent(checkoutId)}&limit=10`, {
+      method: 'GET',
+      headers: { access_token: cfg.chave, 'User-Agent': 'target-auto-spa-api' }
+    });
+  } catch {
+    throw new ErroHttp(502, 'Não foi possível consultar o pagamento. Tente novamente.');
+  }
+  if (!resposta.ok) {
+    console.error('asaas consulta recusada:', resposta.status);
+    throw new ErroHttp(502, 'Não foi possível consultar o pagamento. Tente novamente.');
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  const lista = Array.isArray(dados.data) ? dados.data : [];
+  return lista.map((p) => ({
+    status: typeof p?.status === 'string' ? p.status : '',
+    centavos: typeof p?.value === 'number' && Number.isFinite(p.value) ? Math.round(p.value * 100) : null,
+    customer: typeof p?.customer === 'string' ? p.customer : null
+  }));
+}

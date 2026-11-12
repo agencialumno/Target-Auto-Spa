@@ -57,10 +57,13 @@ test('tokenValido: comparação segura para tamanhos diferentes e valores vazios
   assert.equal(tokenValido('abc', undefined), false);
 });
 
-test('corpo inválido: 400', async () => {
+test('corpo inválido (com token válido): 200 sem gravar nada, nunca 4xx', async () => {
   const { deps } = montar();
   for (const c of [null, [], 'x', {}, { id: '../x', event: 'CHECKOUT_PAID' }, { id: 'e1' }, { id: 'e1', event: 5 }]) {
-    assert.equal((await enviar(deps, c)).status, 400, JSON.stringify(c));
+    const r = await enviar(deps, c);
+    assert.equal(r.status, 200, JSON.stringify(c));
+    assert.match(r.corpo.resultado, /invalido/);
+    assert.equal([...deps.db.docs.keys()].some((k) => k.startsWith('eventosAsaas/')), false);
   }
 });
 
@@ -282,7 +285,10 @@ test('handler: só POST com JSON; resposta traz o resultado', async () => {
   assert.equal(res.codigo, 405);
   res = fakeRes();
   await h(fakeReq(evento('CHECKOUT_PAID'), { 'content-type': 'text/plain' }), res);
-  assert.equal(res.codigo, 415);
+  assert.equal(res.codigo, 401, 'sem token válido: 401 antes de olhar o tipo');
+  res = fakeRes();
+  await h(fakeReq(evento('CHECKOUT_PAID'), { 'content-type': 'text/plain', 'asaas-access-token': TOKEN }), res);
+  assert.equal(res.codigo, 200, 'autenticado, tipo estranho: 200');
   res = fakeRes();
   await h(fakeReq(evento('CHECKOUT_PAID'), { 'asaas-access-token': 'errado' }), res);
   assert.equal(res.codigo, 401);
