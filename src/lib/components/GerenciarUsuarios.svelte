@@ -7,6 +7,7 @@
   import { chamarApi } from '$lib/api';
   import { authStore, type Papel } from '$lib/auth.svelte';
   import Icone from '$lib/components/Icone.svelte';
+  import UsuarioDetalhe from '$lib/components/UsuarioDetalhe.svelte';
 
   type Usuario = {
     uid: string;
@@ -48,6 +49,7 @@
   const nomeCondominio = (id: string | null) =>
     id ? (opcoesCondominio.find((c) => c.id === id)?.nome ?? id) : '';
 
+  let detalhando = $state<Usuario | null>(null);
   let removendo = $state<Usuario | null>(null);
   let apagando = $state(false);
   let erroRemover = $state('');
@@ -222,6 +224,9 @@
             {#if u.condominioId}· {nomeCondominio(u.condominioId)}{/if}
           </small>
         </div>
+        <button class="sec" aria-label={`Detalhes de ${u.nome || u.email}`} onclick={() => (detalhando = u)}>
+          Detalhes
+        </button>
         {#if u.uid !== authStore.usuario?.uid}
           {#if u.role === 'cliente' || u.role === 'gerente'}
             <button class="sec" aria-label={`Condomínio de ${u.nome || u.email}`} onclick={() => abrirVinculo(u)}>
@@ -241,6 +246,15 @@
       </div>
     {/each}
   </div>
+{/if}
+
+{#if detalhando}
+  <UsuarioDetalhe
+    usuario={detalhando}
+    papel={nomePapel(detalhando.role)}
+    condominio={nomeCondominio(detalhando.condominioId)}
+    onfechar={() => (detalhando = null)}
+  />
 {/if}
 
 {#if formAberto}

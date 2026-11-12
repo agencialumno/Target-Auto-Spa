@@ -185,3 +185,26 @@ export async function definirCondominio(deps, authorization, corpo) {
   await db.doc(`users/${uid}`).update({ condominioId });
   return { ok: true, uid, condominioId };
 }
+
+// Dados que só o Authentication tem (data de cadastro e último acesso), lidos pelo Admin SDK.
+// Só admin; devolve apenas as duas datas (nada de e-mail, telefone ou provedores).
+export async function detalharUsuario(deps, authorization, corpo) {
+  const { auth } = deps;
+  await exigirAdmin(deps, authorization);
+
+  exigirObjeto(corpo);
+  const uid = texto(corpo.uid);
+  if (!UID_RE.test(uid)) throw new ErroHttp(400, 'Usuário inválido.');
+
+  try {
+    const { metadata } = await auth.getUser(uid);
+    const data = (v) => {
+      const t = v ? new Date(v) : null;
+      return t && !Number.isNaN(t.getTime()) ? t.toISOString() : null;
+    };
+    return { criadoEm: data(metadata?.creationTime), ultimoAcesso: data(metadata?.lastSignInTime) };
+  } catch (e) {
+    if (e?.code === 'auth/user-not-found') throw new ErroHttp(404, 'Usuário não encontrado.');
+    throw new ErroHttp(502, 'Não foi possível consultar o usuário.');
+  }
+}

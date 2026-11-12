@@ -227,3 +227,24 @@ test('criar: o papel "insulfilm" não existe mais', async () => {
   const d = criarDeps({ papeis: { a1: 'admin' } });
   assert.equal(await status(criarUsuario(d, bearer('a1'), { ...corpoValido, email: 'old@ex.com', role: 'insulfilm' })), 400);
 });
+
+test('detalharUsuario: só admin; devolve só data de cadastro e último acesso', async () => {
+  const { detalharUsuario } = await import('../_lib/usuarios.js');
+  const base = criarDeps({ papeis: { adm: 'admin', cli: 'cliente' } });
+  const deps = {
+    ...base,
+    auth: {
+      ...base.auth,
+      async getUser(uid) {
+        if (uid === 'sumiu') throw Object.assign(new Error('nf'), { code: 'auth/user-not-found' });
+        return { email: 'segredo@x.com', metadata: { creationTime: 'Tue, 03 Nov 2026 10:00:00 GMT', lastSignInTime: 'Wed, 11 Nov 2026 18:30:00 GMT' } };
+      }
+    }
+  };
+  const r = await detalharUsuario(deps, 'Bearer adm', { uid: 'cli' });
+  assert.deepEqual(r, { criadoEm: '2026-11-03T10:00:00.000Z', ultimoAcesso: '2026-11-11T18:30:00.000Z' });
+  await assert.rejects(detalharUsuario(deps, 'Bearer cli', { uid: 'cli' }), { status: 403 });
+  await assert.rejects(detalharUsuario(deps, undefined, { uid: 'cli' }), { status: 401 });
+  await assert.rejects(detalharUsuario(deps, 'Bearer adm', { uid: '../x' }), { status: 400 });
+  await assert.rejects(detalharUsuario(deps, 'Bearer adm', { uid: 'sumiu' }), { status: 404 });
+});

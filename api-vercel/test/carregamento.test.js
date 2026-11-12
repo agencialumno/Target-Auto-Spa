@@ -14,6 +14,7 @@ const ENDPOINTS = [
   'api/usuarios/criar.js',
   'api/usuarios/remover.js',
   'api/usuarios/condominio.js',
+  'api/usuarios/detalhe.js',
   'api/pagamento/criar.js',
   'api/pagamento/status.js',
   'api/asaas/webhook.js',
