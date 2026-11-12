@@ -2,6 +2,7 @@
     import { page } from "$app/state";
     import Icone from "$lib/components/Icone.svelte";
     import { servicosResidenciais } from "$lib/mock";
+    import { FALE_COM_GERENTE, fraseFaleComGerente } from "$lib/textos";
 
     const servico = $derived(
         servicosResidenciais.find((s) => s.id === page.params.id),
@@ -34,7 +35,7 @@
 
             <p class="preco-aviso">
                 <Icone nome="chat" tamanho={18} />
-                Preço sob consulta — fale com o gerente do condomínio.
+                Preço sob consulta — {fraseFaleComGerente()}.
             </p>
 
             <h2>Benefícios</h2>
@@ -51,7 +52,7 @@
         </section>
 
         <div class="cta">
-            <a class="btn-primario" href="/cliente/chat">Falar com o gerente</a>
+            <a class="btn-primario" href="/cliente/chat">{FALE_COM_GERENTE}</a>
         </div>
     {:else}
         <header class="cab">

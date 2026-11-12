@@ -252,3 +252,11 @@ describe('criar usuário (o toque no botão sempre responde)', () => {
     expect(await within(caixa).findByRole('alert')).toHaveTextContent('Não foi possível criar o usuário.');
   });
 });
+
+describe('toque no card abre a tela do usuário', () => {
+  it('o card é um link para /admin/usuarios/{uid} e não existe mais o botão "Detalhes"', async () => {
+    await abrir();
+    expect(screen.getByRole('link', { name: 'Abrir Ana' })).toHaveAttribute('href', '/admin/usuarios/c1');
+    expect(screen.queryByRole('button', { name: /Detalhes de/ })).not.toBeInTheDocument();
+  });
+});

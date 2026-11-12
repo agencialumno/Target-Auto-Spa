@@ -1,10 +1,11 @@
 <script lang="ts">
   import Icone from './Icone.svelte';
+  import { FALE_COM_GERENTE } from '$lib/textos';
 
   let {
     href,
     contagem = 0,
-    rotulo = 'Falar com o gerente'
+    rotulo = FALE_COM_GERENTE
   }: { href: string; contagem?: number; rotulo?: string } = $props();
 
   const textoAcessivel = $derived(

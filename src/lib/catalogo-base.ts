@@ -37,7 +37,7 @@ const brutos: Omit<Servico, "precoCentavos">[] = [
     inclui: [
       "Lavagem externa completa",
       "Secagem manual com microfibra",
-      "Produtos biodegradáveis, sem soda cáustica",
+      "Produtos biodegradáveis",
     ],
     icone: "drop",
     video: null,

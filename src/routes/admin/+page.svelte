@@ -64,9 +64,6 @@
       <button type="button" class="btn-voltar" aria-label="Sair" onclick={() => authStore.sair()}>
         <Icone nome="back" />
       </button>
-      <a class="btn-voltar" href="/gerente/chat" aria-label="Ver conversas">
-        <Icone nome="chat" />
-      </a>
     </div>
     <h1>Painel do <em>administrador</em></h1>
     <p>Visão geral de todos os condomínios</p>
