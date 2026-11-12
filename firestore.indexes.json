@@ -89,6 +89,15 @@
         { "fieldPath": "alvoId", "order": "ASCENDING" },
         { "fieldPath": "em", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pagamento.status", "order": "ASCENDING" },
+        { "fieldPath": "pagamento.pagoEm", "order": "ASCENDING" },
+        { "fieldPath": "total", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

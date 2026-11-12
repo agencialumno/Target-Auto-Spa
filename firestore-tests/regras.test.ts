@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment
 } from '@firebase/rules-unit-testing';
-import { Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { getAggregateFromServer, sum, count as contar, Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 // Roda contra o Firebase Emulator: `npm run test:rules`
 let env: RulesTestEnvironment;
@@ -1434,5 +1434,44 @@ describe('custos (só admin)', () => {
     await assertFails(setDoc(doc(como('gui'), 'atividades', 'l3'), log('gui')));
     await assertFails(setDoc(doc(como('adm'), 'atividades', 'l4'), log('adm', { depois: { descricao: 'segredo', valorCentavos: 1 } })));
     await assertFails(setDoc(doc(como('adm'), 'atividades', 'l5'), log('adm', { alvoTipo: 'servico' })));
+  });
+});
+
+const expectEq = (a: unknown, b: unknown) => { if (a !== b) throw new Error(`esperado ${String(b)}, veio ${String(a)}`); };
+
+describe('leituras do dashboard (agregações, só admin)', () => {
+  const semearPago = (id: string, total: number, status = 'pago') =>
+    env.withSecurityRulesDisabled(async (ctx) =>
+      setDoc(doc(ctx.firestore(), 'agendamentos', id), {
+        clienteId: 'ana', condominioId: 'c1', status: 'finalizado', total,
+        inicio: Timestamp.fromDate(new Date('2030-06-10T12:00:00Z')),
+        pagamento: { status, pagoEm: Timestamp.fromDate(new Date('2030-06-10T13:00:00Z')) }
+      })
+    );
+
+  it('admin: count de usuários por papel, count por status/período e sum do faturamento (só pagos)', async () => {
+    await semearPago('p1', 6500);
+    await semearPago('p2', 20000);
+    await semearPago('p3', 99999, 'pendente');
+    const db = como('adm');
+    const clientes = await assertSucceeds(getCountFromServer(query(collection(db, 'users'), where('role', '==', 'cliente'))));
+    expectEq(clientes.data().count, 7);
+    const q = query(
+      collection(db, 'agendamentos'),
+      where('pagamento.status', '==', 'pago'),
+      where('pagamento.pagoEm', '>=', Timestamp.fromDate(new Date('2030-06-01T00:00:00Z'))),
+      where('pagamento.pagoEm', '<', Timestamp.fromDate(new Date('2030-07-01T00:00:00Z')))
+    );
+    const r = await assertSucceeds(getAggregateFromServer(q, { total: sum('total'), pagos: contar() }));
+    expectEq(r.data().total, 26500);
+    expectEq(r.data().pagos, 2);
+  });
+
+  it('não-admin não agrega agendamentos de todos nem conta usuários', async () => {
+    await semearPago('p1', 6500);
+    for (const uid of ['gui', 'ana', 'fun']) {
+      await assertFails(getCountFromServer(query(collection(como(uid), 'agendamentos'), where('status', '==', 'finalizado'))));
+      await assertFails(getCountFromServer(query(collection(como(uid), 'users'), where('role', '==', 'cliente'))));
+    }
   });
 });
