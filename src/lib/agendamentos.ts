@@ -27,7 +27,7 @@ export type PagamentoStatus =
   | 'divergente'
   | 'pago_apos_cancelamento';
 
-export type Pagamento = { status: PagamentoStatus; venceEm: Date | null; revisao: boolean };
+export type Pagamento = { status: PagamentoStatus; venceEm: Date | null; revisao: boolean; pagoEm?: Date | null };
 
 // O que a tela mostra, já considerando o prazo (o webhook pode demorar alguns segundos a cancelar)
 export type SituacaoPagamento = 'sem' | 'pendente' | 'vencido' | 'pago' | 'expirado' | 'cancelado' | 'revisao' | 'nenhuma';
@@ -94,6 +94,7 @@ export type Agendamento = {
   externo: boolean; // todos os itens são insulfilm (profissional externo); vem do catálogo
   vagaId: string; // vaga em /ocupacao que este agendamento ocupa
   criadoEm: Date | null;
+  atualizadoEm?: Date | null;
 };
 
 export const brlCentavos = (centavos: number) =>
@@ -235,10 +236,16 @@ export function lerAgendamento(id: string, d: DocumentData): Agendamento {
     avaliacao: av ? { nota: av.nota, nps: av.nps, comentario: av.comentario ?? '', em: paraData(av.em) } : null,
     externo: d.externo === true,
     pagamento: d.pagamento?.status
-      ? { status: d.pagamento.status, venceEm: paraData(d.pagamento.venceEm), revisao: d.pagamento.revisao === true }
+      ? {
+          status: d.pagamento.status,
+          venceEm: paraData(d.pagamento.venceEm),
+          revisao: d.pagamento.revisao === true,
+          pagoEm: paraData(d.pagamento.pagoEm)
+        }
       : null,
     vagaId: d.vagaId ?? '',
-    criadoEm: paraData(d.criadoEm)
+    criadoEm: paraData(d.criadoEm),
+    atualizadoEm: paraData(d.atualizadoEm)
   };
 }
 

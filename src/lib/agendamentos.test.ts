@@ -223,7 +223,7 @@ describe('pagamento', () => {
 
   it('o app não carrega checkoutId nem link do documento', () => {
     const ag = lerAgendamento('x', { pagamento: { status: 'pendente', checkoutId: 'chk', link: 'https://a.com' } });
-    expect(Object.keys(ag.pagamento!).sort()).toEqual(['revisao', 'status', 'venceEm']);
+    expect(Object.keys(ag.pagamento!).sort()).toEqual(['pagoEm', 'revisao', 'status', 'venceEm']);
   });
 
   it.each([
