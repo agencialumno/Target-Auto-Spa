@@ -1355,3 +1355,84 @@ describe('atividades (log imutável)', () => {
     await assertSucceeds(updateDoc(doc(como('adm'), 'servicos', 's9'), { precoCentavos: 200 }));
   });
 });
+
+describe('custos (só admin)', () => {
+  const custo = (extra: Record<string, unknown> = {}) => ({
+    categoria: 'produtos',
+    descricao: 'Shampoo',
+    valorCentavos: 125050,
+    competencia: '2030-03-01',
+    tipo: 'avulso',
+    escopo: 'geral',
+    criadoPor: 'adm',
+    criadoEm: serverTimestamp(),
+    ...extra
+  });
+  const semear = (id = 'k1', extra: Record<string, unknown> = {}) =>
+    env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'custos', id), { ...custo(extra), criadoEm: Timestamp.now() }));
+
+  it('admin cria avulso, recorrente (com e sem fim) e por condomínio', async () => {
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'a'), custo()));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'b'), custo({ tipo: 'recorrente', recorrencia: 'mensal', fim: '2030-08-01' })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'c'), custo({ tipo: 'recorrente', recorrencia: 'mensal', fim: null })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'd'), custo({ escopo: 'c1' })));
+  });
+
+  it('ninguém além do admin lê, cria, altera ou apaga', async () => {
+    await semear();
+    for (const uid of ['ana', 'gui', 'fun']) {
+      await assertFails(getDoc(doc(como(uid), 'custos', 'k1')));
+      await assertFails(setDoc(doc(como(uid), 'custos', 'n'), custo({ criadoPor: uid })));
+      await assertFails(updateDoc(doc(como(uid), 'custos', 'k1'), { descricao: 'x', atualizadoEm: serverTimestamp() }));
+      await assertFails(deleteDoc(doc(como(uid), 'custos', 'k1')));
+    }
+    await assertFails(getDoc(doc(como(null), 'custos', 'k1')));
+    await assertFails(setDoc(doc(como(null), 'custos', 'n'), custo()));
+  });
+
+  it('formato inválido é negado (categoria, valor, competência, tipo, escopo, autor, hora, campo extra)', async () => {
+    const ruins: Record<string, unknown>[] = [
+      { categoria: 'invalida' },
+      { descricao: '' },
+      { valorCentavos: 0 },
+      { valorCentavos: 10.5 },
+      { valorCentavos: 200000000 },
+      { competencia: '2030-03-15' },
+      { competencia: '2030-13-01' },
+      { tipo: 'avulso', recorrencia: 'mensal' },
+      { tipo: 'recorrente' },
+      { tipo: 'recorrente', recorrencia: 'mensal', fim: '2030-01-01' },
+      { escopo: 'condominio-que-nao-existe' },
+      { criadoPor: 'gui' },
+      { criadoEm: Timestamp.fromDate(new Date('2020-01-01')) },
+      { email: 'a@b.com' }
+    ];
+    for (const [i, r] of ruins.entries()) await assertFails(setDoc(doc(como('adm'), 'custos', `r${i}`), custo(r)));
+  });
+
+  it('update: admin altera valor; autor e data de criação não mudam; sem carimbo de hora é negado', async () => {
+    await semear();
+    const base = { categoria: 'produtos', descricao: 'Shampoo', competencia: '2030-03-01', tipo: 'avulso', escopo: 'geral' };
+    await assertSucceeds(updateDoc(doc(como('adm'), 'custos', 'k1'), { ...base, valorCentavos: 99900, atualizadoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { valorCentavos: 100 }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { criadoPor: 'gui', atualizadoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { valorCentavos: -1, atualizadoEm: serverTimestamp() }));
+  });
+
+  it('admin apaga', async () => {
+    await semear();
+    await assertSucceeds(deleteDoc(doc(como('adm'), 'custos', 'k1')));
+  });
+
+  it('log de custo: só admin registra, só com categoria e valor', async () => {
+    const log = (uid: string, extra: Record<string, unknown> = {}) => ({
+      em: serverTimestamp(), atorUid: uid, atorPapel: PERFIS[uid].role, acao: 'custo_criado', alvoTipo: 'custo', alvoId: 'k1',
+      depois: { categoria: 'produtos', valorCentavos: 125050 }, origem: 'app', ...extra
+    });
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'l1'), log('adm')));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'l2'), log('adm', { acao: 'custo_alterado', antes: { categoria: 'produtos', valorCentavos: 1 } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'l3'), log('gui')));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'l4'), log('adm', { depois: { descricao: 'segredo', valorCentavos: 1 } })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'l5'), log('adm', { alvoTipo: 'servico' })));
+  });
+});

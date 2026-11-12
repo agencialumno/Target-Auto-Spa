@@ -5,17 +5,32 @@ import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import type { Status } from './agendamentos';
 
-export type AcaoApp = 'login_admin' | 'preco_alterado' | 'status_agendamento';
+export type AcaoApp = 'login_admin' | 'preco_alterado' | 'status_agendamento' | 'custo_criado' | 'custo_alterado' | 'custo_removido';
 
 export type NovaAtividade = {
   acao: AcaoApp;
   alvoId: string;
-  antes?: { status?: Status; precoCentavos?: number };
-  depois?: { status?: Status; precoCentavos?: number };
+  antes?: { status?: Status; precoCentavos?: number; categoria?: string; valorCentavos?: number };
+  depois?: { status?: Status; precoCentavos?: number; categoria?: string; valorCentavos?: number };
 };
 
-const ALVO: Record<AcaoApp, string> = { login_admin: 'usuario', preco_alterado: 'servico', status_agendamento: 'agendamento' };
-const CAMPOS: Record<AcaoApp, string[]> = { login_admin: [], preco_alterado: ['precoCentavos'], status_agendamento: ['status'] };
+const ALVO: Record<AcaoApp, string> = {
+  login_admin: 'usuario',
+  preco_alterado: 'servico',
+  status_agendamento: 'agendamento',
+  custo_criado: 'custo',
+  custo_alterado: 'custo',
+  custo_removido: 'custo'
+};
+const CAMPOS_CUSTO = ['categoria', 'valorCentavos'];
+const CAMPOS: Record<AcaoApp, string[]> = {
+  login_admin: [],
+  preco_alterado: ['precoCentavos'],
+  status_agendamento: ['status'],
+  custo_criado: CAMPOS_CUSTO,
+  custo_alterado: CAMPOS_CUSTO,
+  custo_removido: CAMPOS_CUSTO
+};
 
 const so = (campos: string[], o?: Record<string, unknown>) => {
   const saida = Object.fromEntries(campos.filter((c) => o?.[c] !== undefined).map((c) => [c, o![c]]));

@@ -28,5 +28,5 @@ test('montarAtividade: centavos só inteiros; texto só simples; lista fechada d
   assert.equal(a.antes, null);
   assert.deepEqual(a.depois, { precoCentavos: 7000 });
   assert.equal(montarAtividade({ ...base, acao: 'status_agendamento', depois: { status: '<script>' } }).depois, null);
-  assert.equal(Object.keys(ACOES).length, 11);
+  assert.equal(Object.keys(ACOES).length, 14);
 });

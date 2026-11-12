@@ -15,7 +15,10 @@ export const ACOES = {
   pagamento_confirmado: { alvoTipo: 'agendamento', campos: ['status', 'valorCentavos'] },
   pagamento_divergente: { alvoTipo: 'agendamento', campos: ['status', 'valorCentavos'] },
   pagamento_expirado: { alvoTipo: 'agendamento', campos: ['status', 'valorCentavos'] },
-  pagamento_cancelado: { alvoTipo: 'agendamento', campos: ['status', 'valorCentavos'] }
+  pagamento_cancelado: { alvoTipo: 'agendamento', campos: ['status', 'valorCentavos'] },
+  custo_criado: { alvoTipo: 'custo', campos: ['categoria', 'valorCentavos'] },
+  custo_alterado: { alvoTipo: 'custo', campos: ['categoria', 'valorCentavos'] },
+  custo_removido: { alvoTipo: 'custo', campos: ['categoria', 'valorCentavos'] }
 };
 
 export const ATOR_SISTEMA = { atorUid: 'asaas', atorPapel: 'sistema:asaas' };

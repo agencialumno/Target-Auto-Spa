@@ -12,7 +12,10 @@ export const rotuloAcao: Record<string, string> = {
   pagamento_confirmado: 'Pagamento confirmado',
   pagamento_divergente: 'Pagamento divergente',
   pagamento_expirado: 'Pagamento expirado',
-  pagamento_cancelado: 'Pagamento cancelado'
+  pagamento_cancelado: 'Pagamento cancelado',
+  custo_criado: 'Custo criado',
+  custo_alterado: 'Custo alterado',
+  custo_removido: 'Custo removido'
 };
 
 export type FiltrosBrutos = { atorUid: string; acao: string; alvoId: string; de: string; ate: string };
@@ -77,7 +80,7 @@ export function descreverMudanca(a: Pick<Atividade, 'antes' | 'depois'>): string
     .map((c) => {
       const fmt = (v: unknown) =>
         v === undefined || v === null ? '—' : /Centavos$/.test(c) && typeof v === 'number' ? brl(v) : String(v);
-      const nome = c === 'precoCentavos' ? 'preço' : c === 'valorCentavos' ? 'valor' : c === 'condominioId' ? 'condomínio' : c;
+      const nome = c === 'categoria' ? 'categoria' : c === 'precoCentavos' ? 'preço' : c === 'valorCentavos' ? 'valor' : c === 'condominioId' ? 'condomínio' : c;
       return `${nome}: ${fmt(a.antes?.[c])} → ${fmt(a.depois?.[c])}`;
     })
     .join(' · ');
