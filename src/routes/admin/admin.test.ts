@@ -137,6 +137,12 @@ describe('tela inicial do admin', () => {
     expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(5);
   });
 
+  it('não tem entrada para mensagens (o cliente fala com o gerente, não com o admin)', () => {
+    const { container } = render(Home);
+    expect(container.querySelector('a[href="/gerente/chat"]')).toBeNull();
+    expect(screen.queryByRole('link', { name: /conversas|mensagens/i })).toBeNull();
+  });
+
   it('tem o botão de sair', () => {
     render(Home);
     expect(screen.getByRole('button', { name: 'Sair' })).toBeInTheDocument();
