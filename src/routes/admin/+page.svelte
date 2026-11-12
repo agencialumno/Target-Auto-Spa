@@ -44,6 +44,12 @@
       contexto: usuarios === null ? 'Carregando...' : plural(usuarios, 'usuário', 'usuários')
     },
     {
+      href: '/admin/atividades',
+      icone: 'calendar',
+      titulo: 'Atividades',
+      contexto: 'Histórico de ações'
+    },
+    {
       href: '/admin/condominios',
       icone: 'home',
       titulo: 'Condomínios',

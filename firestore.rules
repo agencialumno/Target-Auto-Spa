@@ -454,6 +454,54 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ---------- Log de atividades ----------
+    // Imutável para qualquer cliente: só create (nunca update nem delete) e leitura só do admin.
+    // O servidor (Admin SDK) grava usuários, vínculos e pagamentos; o app grava só login de admin, preço e
+    // status de agendamento, sempre como o próprio autor. NENHUMA regra de outra coleção exige este log
+    // (a build antiga do app não o grava); apertar isso fica para depois que o app novo estiver na loja.
+    match /atividades/{atividadeId} {
+      function statusValido(s) {
+        return s in ['agendado', 'em_andamento', 'finalizado', 'cancelado'];
+      }
+
+      function precoOk(m) {
+        return m is map && m.keys().hasOnly(['precoCentavos']) && m.precoCentavos is int && m.precoCentavos >= 0;
+      }
+
+      function statusOk(m) {
+        return m is map && m.keys().hasOnly(['status']) && m.status is string && statusValido(m.status);
+      }
+
+      function atividadeDoApp() {
+        let d = request.resource.data;
+        return (
+          // login do admin: sem antes/depois, alvo é o próprio usuário
+          (d.acao == 'login_admin' && souAdmin() && d.alvoTipo == 'usuario' && d.alvoId == request.auth.uid
+            && !('antes' in d) && !('depois' in d))
+          || (d.acao == 'preco_alterado' && souAdmin() && d.alvoTipo == 'servico'
+            && precoOk(d.get('antes', null)) && precoOk(d.get('depois', null)))
+          || (d.acao == 'status_agendamento' && d.alvoTipo == 'agendamento'
+            && statusOk(d.get('antes', null)) && statusOk(d.get('depois', null)))
+        );
+      }
+
+      allow read: if souAdmin();
+
+      allow create: if tenhoPerfil()
+        && request.resource.data.keys().hasOnly(['em', 'atorUid', 'atorPapel', 'acao', 'alvoTipo', 'alvoId', 'antes', 'depois', 'origem'])
+        && request.resource.data.keys().hasAll(['em', 'atorUid', 'atorPapel', 'acao', 'alvoTipo', 'alvoId', 'origem'])
+        && request.resource.data.em == request.time
+        && request.resource.data.atorUid == request.auth.uid
+        && request.resource.data.atorPapel == meuPerfil().role
+        && request.resource.data.origem == 'app'
+        && request.resource.data.alvoId is string
+        && request.resource.data.alvoId.size() >= 1
+        && request.resource.data.alvoId.size() <= 128
+        && atividadeDoApp();
+
+      allow update, delete: if false;
+    }
+
     // Tudo o que não foi liberado acima fica bloqueado
     match /{document=**} {
       allow read, write: if false;

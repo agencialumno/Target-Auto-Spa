@@ -1281,3 +1281,77 @@ describe('pagamento: campo "pagamento", eventosAsaas e clientesAsaas só pelo se
     });
   });
 });
+
+describe('atividades (log imutável)', () => {
+  const ativ = (uid: string, extra: Record<string, unknown> = {}) => ({
+    em: serverTimestamp(),
+    atorUid: uid,
+    atorPapel: PERFIS[uid].role,
+    acao: 'status_agendamento',
+    alvoTipo: 'agendamento',
+    alvoId: 'ag1',
+    antes: { status: 'agendado' },
+    depois: { status: 'em_andamento' },
+    origem: 'app',
+    ...extra
+  });
+  const preco = (extra: Record<string, unknown> = {}) =>
+    ativ('adm', { acao: 'preco_alterado', alvoTipo: 'servico', alvoId: 's1', antes: { precoCentavos: 6500 }, depois: { precoCentavos: 7000 }, ...extra });
+  const login = (extra: Record<string, unknown> = {}) =>
+    ativ('adm', { acao: 'login_admin', alvoTipo: 'usuario', alvoId: 'adm', antes: undefined, depois: undefined, ...extra });
+  const limpo = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+  it('create válido: status (gerente, funcionário, cliente), preço e login (admin)', async () => {
+    await assertSucceeds(setDoc(doc(como('gui'), 'atividades', 'a1'), ativ('gui')));
+    await assertSucceeds(setDoc(doc(como('fun'), 'atividades', 'a2'), ativ('fun')));
+    await assertSucceeds(setDoc(doc(como('ana'), 'atividades', 'a3'), ativ('ana', { depois: { status: 'cancelado' } })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'a4'), preco()));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'a5'), limpo(login())));
+  });
+
+  it('forjar outro atorUid ou outro papel é negado', async () => {
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f1'), ativ('ana', { atorUid: 'gui' })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f2'), ativ('ana', { atorPapel: 'admin' })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f3'), ativ('ana', { atorUid: 'adm', atorPapel: 'admin' })));
+  });
+
+  it('só o admin registra preço e login; cliente não registra preço', async () => {
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'p1'), ativ('gui', { acao: 'preco_alterado', alvoTipo: 'servico', alvoId: 's1', antes: { precoCentavos: 1 }, depois: { precoCentavos: 2 } })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'p2'), ativ('ana', { acao: 'login_admin', alvoTipo: 'usuario', alvoId: 'ana' })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'p3'), limpo(login({ alvoId: 'ana' }))));
+  });
+
+  it('campos fora do formato são negados (hora do cliente, campo extra, e-mail, ação fora da lista, origem)', async () => {
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x1'), ativ('gui', { em: Timestamp.fromDate(new Date('2020-01-01')) })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x2'), ativ('gui', { email: 'a@b.com' })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x3'), ativ('gui', { depois: { status: 'em_andamento', email: 'a@b.com' } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x4'), ativ('gui', { depois: { status: 'qualquer' } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x5'), ativ('gui', { acao: 'usuario_removido', alvoTipo: 'usuario' })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x6'), ativ('gui', { origem: 'api' })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'x7'), preco({ depois: { precoCentavos: 7000.5 } })));
+    await assertFails(setDoc(doc(como(null), 'atividades', 'x8'), ativ('gui')));
+  });
+
+  it('update e delete negados a todos, inclusive ao autor e ao admin', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'atividades', 'e1'), { ...ativ('gui'), em: Timestamp.now() }));
+    for (const uid of ['gui', 'adm', 'ana']) {
+      await assertFails(updateDoc(doc(como(uid), 'atividades', 'e1'), { acao: 'preco_alterado' }));
+      await assertFails(deleteDoc(doc(como(uid), 'atividades', 'e1')));
+      await assertFails(setDoc(doc(como(uid), 'atividades', 'e1'), { ...ativ(uid), alvoId: 'outro' }));
+    }
+  });
+
+  it('leitura só do admin (nem o autor, nem o gerente, nem anônimo)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'atividades', 'l1'), { ...ativ('gui'), em: Timestamp.now() }));
+    await assertSucceeds(getDoc(doc(como('adm'), 'atividades', 'l1')));
+    for (const uid of ['gui', 'ana', 'fun']) await assertFails(getDoc(doc(como(uid), 'atividades', 'l1')));
+    await assertFails(getDoc(doc(como(null), 'atividades', 'l1')));
+    await assertSucceeds(getDocs(query(collection(como('adm'), 'atividades'))));
+    await assertFails(getDocs(query(collection(como('gui'), 'atividades'))));
+  });
+
+  it('o log não é exigido por nenhuma outra regra (compatível com a build antiga do app)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'servicos', 's9'), { nome: 'X', precoCentavos: 100, duracaoMin: 30, ativo: true }));
+    await assertSucceeds(updateDoc(doc(como('adm'), 'servicos', 's9'), { precoCentavos: 200 }));
+  });
+});

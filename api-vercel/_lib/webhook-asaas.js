@@ -2,6 +2,7 @@
 // Regras: token em tempo constante (sem ASAAS_WEBHOOK_TOKEN nada passa), idempotente pelo id do evento,
 // nada de CPF, e-mail ou endereço gravado ou registrado em log. Só a lógica; sem rede.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { ATOR_SISTEMA, registrarNaTransacao } from './atividades.js';
 
 // O Asaas documenta ids como "evt_05b708f9...&368604920": o "&" faz parte do id (sem ele o evento real virava 400)
 export const EVENTO_ID_RE = /^[A-Za-z0-9_&.:=-]{1,128}$/;
@@ -77,6 +78,24 @@ export function decidir(tipo, ag, { checkoutId, valor, agora }) {
     return { resultado: 'agendamento_cancelado', pagamento, cancelar: true };
   }
   return { resultado: 'status_atualizado', pagamento };
+}
+
+// O que o log de atividades registra para uma decisão (só status e valor em centavos)
+export function atividadeDoPagamento(tipo, d, ag, valor) {
+  const antes = { status: ag.pagamento?.status ?? null };
+  const status = d.pagamento?.status;
+  switch (d.resultado) {
+    case 'pago':
+    case 'pago_apos_cancelamento':
+      return { acao: 'pagamento_confirmado', antes, depois: { status, valorCentavos: valor ?? ag.total } };
+    case 'valor_divergente':
+      return { acao: 'pagamento_divergente', antes, depois: { status, valorCentavos: valor } };
+    case 'agendamento_cancelado':
+    case 'status_atualizado':
+      return { acao: tipo === 'CHECKOUT_EXPIRED' ? 'pagamento_expirado' : 'pagamento_cancelado', antes, depois: { status } };
+    default:
+      return null;
+  }
 }
 
 async function acharPorCheckout(db, checkoutId) {
@@ -163,6 +182,9 @@ export async function processarWebhook(deps, headers, corpo) {
     if (d.pagamento?.revisao) registro.revisar = true;
 
     tx.set(eventoRef, registro);
+    // Mesmo commit da mudança: o log só existe se o pagamento foi mesmo gravado
+    const atv = atividadeDoPagamento(tipo, d, ag, valor);
+    if (atv) registrarNaTransacao(tx, db, { ...ATOR_SISTEMA, em: quando, alvoId: agendamentoId, origem: 'webhook', ...atv });
     return d.resultado;
   });
 

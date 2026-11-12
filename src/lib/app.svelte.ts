@@ -23,6 +23,7 @@ import { getDownloadURL, ref as refStorage, uploadBytes } from 'firebase/storage
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { db, storage } from './firebase';
 import { chamarApi } from './api';
+import { registrarAtividade } from './atividades';
 import { angulos360 } from './mock';
 import { getServico } from './catalogo.svelte';
 import { gastoJanela, nivelAtual, proximoNivel, type Compra } from './niveis';
@@ -528,6 +529,7 @@ class App {
     lote.update(doc(db, 'agendamentos', id), { status: 'cancelado', atualizadoEm: serverTimestamp() });
     if (ag?.vagaId) lote.delete(doc(db, 'ocupacao', ag.vagaId));
     await lote.commit();
+    if (ag) void registrarAtividade({ acao: 'status_agendamento', alvoId: id, antes: { status: ag.status }, depois: { status: 'cancelado' } }, this.sessao?.role);
   }
 
   fotosFeitas(ag: Agendamento, fase: Fase) {
@@ -544,6 +546,7 @@ class App {
     if (!proximo) return null;
     try {
       await updateDoc(doc(db, 'agendamentos', id), { status: proximo, atualizadoEm: serverTimestamp() });
+      void registrarAtividade({ acao: 'status_agendamento', alvoId: id, antes: { status: ag.status }, depois: { status: proximo } }, this.sessao?.role);
       return null;
     } catch (e) {
       return `Não foi possível atualizar (${(e as { code?: string })?.code ?? 'erro'}).`;

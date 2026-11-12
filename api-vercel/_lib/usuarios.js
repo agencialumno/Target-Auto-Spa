@@ -2,6 +2,8 @@
 // recebe `auth` (firebase-admin/auth) e `db` (firebase-admin/firestore) por parâmetro,
 // o que permite testar com objetos falsos.
 
+import { registrarAtividade } from './atividades.js';
+
 export const PAPEIS = ['cliente', 'gerente', 'funcionario', 'admin'];
 
 // O insulfilm não é um papel: é um funcionário com especialidade (gravada só por aqui, nunca pelo cliente)
@@ -57,7 +59,7 @@ export async function exigirAdmin({ auth, db }, authorization) {
 
 export async function criarUsuario(deps, authorization, corpo) {
   const { auth, db } = deps;
-  await exigirAdmin(deps, authorization);
+  const adminUid = await exigirAdmin(deps, authorization);
 
   exigirObjeto(corpo);
   const nome = texto(corpo.nome);
@@ -120,6 +122,14 @@ export async function criarUsuario(deps, authorization, corpo) {
     throw new ErroHttp(500, 'Não foi possível gravar o perfil.');
   }
 
+  await registrarAtividade(db, {
+    em: new Date(),
+    atorUid: adminUid,
+    atorPapel: 'admin',
+    acao: 'usuario_criado',
+    alvoId: usuario.uid,
+    depois: { papel: role, condominioId: vinculado }
+  });
   return { uid: usuario.uid };
 }
 
@@ -133,6 +143,8 @@ export async function removerUsuario(deps, authorization, corpo) {
   if (uid === adminUid) throw new ErroHttp(400, 'Você não pode remover a própria conta.');
 
   const alvo = await db.doc(`users/${uid}`).get();
+  // Lido antes de apagar: o log guarda só papel e condomínio do removido
+  const perfilAntes = alvo.exists ? { papel: alvo.data().role, condominioId: alvo.data().condominioId ?? null } : null;
   if (alvo.exists && alvo.data().role === 'admin') {
     const admins = await db.collection('users').where('role', '==', 'admin').count().get();
     if (admins.data().count <= 1) {
@@ -150,6 +162,16 @@ export async function removerUsuario(deps, authorization, corpo) {
   }
   await db.doc(`users/${uid}`).delete();
 
+  // Só papel e uid do removido (nunca e-mail ou nome)
+  await registrarAtividade(db, {
+    em: new Date(),
+    atorUid: adminUid,
+    atorPapel: 'admin',
+    acao: 'usuario_removido',
+    alvoId: uid,
+    antes: perfilAntes
+  });
+
   return { ok: true };
 }
 
@@ -157,7 +179,7 @@ export async function removerUsuario(deps, authorization, corpo) {
 // uma vez (firestore.rules); mudanças posteriores passam por aqui, com o Admin SDK.
 export async function definirCondominio(deps, authorization, corpo) {
   const { db } = deps;
-  await exigirAdmin(deps, authorization);
+  const adminUid = await exigirAdmin(deps, authorization);
 
   exigirObjeto(corpo);
   const uid = texto(corpo.uid);
@@ -182,7 +204,17 @@ export async function definirCondominio(deps, authorization, corpo) {
     if (!condo.exists) throw new ErroHttp(404, 'Condomínio não encontrado.');
   }
 
+  const condominioAntes = alvo.data().condominioId ?? null;
   await db.doc(`users/${uid}`).update({ condominioId });
+  await registrarAtividade(db, {
+    em: new Date(),
+    atorUid: adminUid,
+    atorPapel: 'admin',
+    acao: 'condominio_vinculado',
+    alvoId: uid,
+    antes: { condominioId: condominioAntes },
+    depois: { condominioId }
+  });
   return { ok: true, uid, condominioId };
 }
 

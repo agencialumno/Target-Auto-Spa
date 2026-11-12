@@ -27,6 +27,7 @@ import { erroApple, erroGoogle, mensagemErroApple, mensagemErroGoogle, traduzErr
 import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "./config";
 import { resumoToken } from "./jwt";
 import { normalizarNome } from "./condominio";
+import { registrarAtividade } from "./atividades";
 
 // iOS usa o client ID "iOS"; Android (fluxo nativo) usa o client ID "Aplicativo da Web"
 function clientIdGoogle(): string {
@@ -73,11 +74,26 @@ class Auth {
       this.usuario = user;
       if (user) {
         this.perfil = await this.buscarPerfil(user.uid);
+        this.registrarLoginAdmin(user);
       } else {
         this.perfil = null;
       }
       this.carregando = false;
     });
+  }
+
+  // Login de admin no log, em melhor esforço: só se o login é recente (não sessão restaurada) e uma vez por sessão
+  private registrarLoginAdmin(user: User) {
+    if (this.perfil?.role !== "admin") return;
+    try {
+      const quando = Date.parse(user.metadata.lastSignInTime ?? "");
+      const chave = `atv-login-${user.uid}-${quando}`;
+      if (!Number.isFinite(quando) || Date.now() - quando > 2 * 60_000 || sessionStorage.getItem(chave)) return;
+      sessionStorage.setItem(chave, "1");
+    } catch {
+      return;
+    }
+    void registrarAtividade({ acao: "login_admin", alvoId: user.uid }, "admin");
   }
 
   private async buscarPerfil(uid: string): Promise<Perfil | null> {

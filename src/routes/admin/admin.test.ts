@@ -132,9 +132,9 @@ describe('tela inicial do admin', () => {
     await waitFor(() => expect(cartao).toHaveTextContent(contexto));
   });
 
-  it('são exatamente 5 cartões', () => {
+  it('são exatamente 6 cartões (inclui Atividades)', () => {
     render(Home);
-    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(5);
+    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(6);
   });
 
   it('tem o botão de sair', () => {

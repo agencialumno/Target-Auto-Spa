@@ -65,6 +65,30 @@
         { "fieldPath": "condominioId", "order": "ASCENDING" },
         { "fieldPath": "ultimaHora", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "atividades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "atorUid", "order": "ASCENDING" },
+        { "fieldPath": "em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atividades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "acao", "order": "ASCENDING" },
+        { "fieldPath": "em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atividades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "alvoId", "order": "ASCENDING" },
+        { "fieldPath": "em", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
