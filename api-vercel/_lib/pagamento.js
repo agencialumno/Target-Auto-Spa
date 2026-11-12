@@ -2,7 +2,8 @@
 // Recebe auth, db e o resto por parâmetro para poder ser testado sem rede.
 import { ErroHttp } from './usuarios.js';
 import { MINUTOS_PARA_PAGAR, configAsaas, criarCheckoutAsaas, listarPagamentosDoCheckout, montarCheckout } from './asaas.js';
-import { decidir } from './webhook-asaas.js';
+import { atividadeDoPagamento, decidir } from './webhook-asaas.js';
+import { registrarNaTransacao } from './atividades.js';
 
 const ID_RE = /^[A-Za-z0-9]{1,64}$/;
 const CUSTOMER_RE = /^cus_[A-Za-z0-9]{1,64}$/;
@@ -119,6 +120,8 @@ export async function consultarStatus(deps, authorization, corpo) {
     if (d.registrarCliente && cliente && typeof dados.clienteId === 'string' && ID_RE.test(dados.clienteId)) {
       tx.set(db.doc(`clientesAsaas/${dados.clienteId}`), { asaasCustomerId: cliente, atualizadoEm: quando });
     }
+    const atv = atividadeDoPagamento('CHECKOUT_PAID', d, dados, valor);
+    if (atv) registrarNaTransacao(tx, db, { atorUid: uid, atorPapel: 'cliente', em: quando, alvoId: agendamentoId, origem: 'consulta', ...atv });
     tx.set(eventoRef, { evento: 'CONSULTA_STATUS', recebidoEm: quando, resultado: d.resultado, agendamentoId, checkoutId, ...(d.pagamento?.revisao ? { revisar: true } : {}) });
     return d.resultado;
   });

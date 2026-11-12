@@ -454,6 +454,100 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ---------- Custos operacionais (só admin) ----------
+    // Valor em centavos inteiros; competência = mês (aaaa-mm-01). O log de atividades NÃO é exigido aqui.
+    match /custos/{custoId} {
+      function custoValido(d) {
+        return d.keys().hasOnly(['categoria', 'descricao', 'valorCentavos', 'competencia', 'tipo', 'recorrencia', 'fim', 'escopo', 'criadoPor', 'criadoEm', 'atualizadoEm'])
+          && d.keys().hasAll(['categoria', 'descricao', 'valorCentavos', 'competencia', 'tipo', 'escopo', 'criadoPor', 'criadoEm'])
+          && d.categoria in ['pessoal', 'produtos', 'equipamento', 'aluguel', 'impostos', 'marketing', 'outros']
+          && d.descricao is string && d.descricao.size() >= 1 && d.descricao.size() <= 120
+          && d.valorCentavos is int && d.valorCentavos > 0 && d.valorCentavos <= 100000000
+          && d.competencia is string && d.competencia.matches('^[0-9]{4}-(0[1-9]|1[0-2])-01$')
+          && d.tipo in ['avulso', 'recorrente']
+          && (d.tipo == 'recorrente'
+            ? (d.get('recorrencia', null) == 'mensal'
+              && (d.get('fim', null) == null
+                || (d.fim is string && d.fim.matches('^[0-9]{4}-(0[1-9]|1[0-2])-01$') && d.fim >= d.competencia)))
+            : (!('recorrencia' in d) && !('fim' in d)))
+          && d.escopo is string
+          && (d.escopo == 'geral' || exists(/databases/$(database)/documents/condominios/$(d.escopo)));
+      }
+
+      allow read: if souAdmin();
+
+      allow create: if souAdmin()
+        && custoValido(request.resource.data)
+        && request.resource.data.criadoPor == request.auth.uid
+        && request.resource.data.criadoEm == request.time
+        && !('atualizadoEm' in request.resource.data);
+
+      // Autor e data de criação não mudam
+      allow update: if souAdmin()
+        && custoValido(request.resource.data)
+        && request.resource.data.criadoPor == resource.data.criadoPor
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.get('atualizadoEm', null) == request.time;
+
+      allow delete: if souAdmin();
+    }
+
+    // ---------- Log de atividades ----------
+    // Imutável para qualquer cliente: só create (nunca update nem delete) e leitura só do admin.
+    // O servidor (Admin SDK) grava usuários, vínculos e pagamentos; o app grava só login de admin, preço e
+    // status de agendamento, sempre como o próprio autor. NENHUMA regra de outra coleção exige este log
+    // (a build antiga do app não o grava); apertar isso fica para depois que o app novo estiver na loja.
+    match /atividades/{atividadeId} {
+      function statusValido(s) {
+        return s in ['agendado', 'em_andamento', 'finalizado', 'cancelado'];
+      }
+
+      function precoOk(m) {
+        return m is map && m.keys().hasOnly(['precoCentavos']) && m.precoCentavos is int && m.precoCentavos >= 0;
+      }
+
+      function statusOk(m) {
+        return m is map && m.keys().hasOnly(['status']) && m.status is string && statusValido(m.status);
+      }
+
+      function custoLogOk(m) {
+        return m == null || (m is map && m.keys().hasOnly(['categoria', 'valorCentavos'])
+          && m.get('valorCentavos', 0) is int && m.get('valorCentavos', 0) >= 0
+          && m.get('categoria', '') is string && m.get('categoria', '').size() <= 40);
+      }
+
+      function atividadeDoApp() {
+        let d = request.resource.data;
+        return (
+          // login do admin: sem antes/depois, alvo é o próprio usuário
+          (d.acao == 'login_admin' && souAdmin() && d.alvoTipo == 'usuario' && d.alvoId == request.auth.uid
+            && !('antes' in d) && !('depois' in d))
+          || (d.acao == 'preco_alterado' && souAdmin() && d.alvoTipo == 'servico'
+            && precoOk(d.get('antes', null)) && precoOk(d.get('depois', null)))
+          || (d.acao == 'status_agendamento' && d.alvoTipo == 'agendamento'
+            && statusOk(d.get('antes', null)) && statusOk(d.get('depois', null)))
+          || (d.acao in ['custo_criado', 'custo_alterado', 'custo_removido'] && souAdmin() && d.alvoTipo == 'custo'
+            && custoLogOk(d.get('antes', null)) && custoLogOk(d.get('depois', null)))
+        );
+      }
+
+      allow read: if souAdmin();
+
+      allow create: if tenhoPerfil()
+        && request.resource.data.keys().hasOnly(['em', 'atorUid', 'atorPapel', 'acao', 'alvoTipo', 'alvoId', 'antes', 'depois', 'origem'])
+        && request.resource.data.keys().hasAll(['em', 'atorUid', 'atorPapel', 'acao', 'alvoTipo', 'alvoId', 'origem'])
+        && request.resource.data.em == request.time
+        && request.resource.data.atorUid == request.auth.uid
+        && request.resource.data.atorPapel == meuPerfil().role
+        && request.resource.data.origem == 'app'
+        && request.resource.data.alvoId is string
+        && request.resource.data.alvoId.size() >= 1
+        && request.resource.data.alvoId.size() <= 128
+        && atividadeDoApp();
+
+      allow update, delete: if false;
+    }
+
     // Tudo o que não foi liberado acima fica bloqueado
     match /{document=**} {
       allow read, write: if false;

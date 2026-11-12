@@ -236,3 +236,42 @@ test('expirar/cancelar nunca desfaz pagamento confirmado nem valor divergente (d
     }
   }
 });
+
+// ---------- log de atividades nos pagamentos ----------
+const atvs = (db) => [...db.docs.entries()].filter(([k]) => k.startsWith('atividades/')).map(([, v]) => v);
+
+test('atividades: CHECKOUT_PAID grava pagamento_confirmado no mesmo commit; repetido não duplica', async () => {
+  const { db, deps } = montar();
+  await processarWebhook(deps, cab(), checkoutPago());
+  await processarWebhook(deps, cab(), checkoutPago());
+  const log = atvs(db);
+  assert.equal(log.length, 1);
+  assert.equal(log[0].acao, 'pagamento_confirmado');
+  assert.equal(log[0].atorPapel, 'sistema:asaas');
+  assert.equal(log[0].alvoId, 'ag1');
+  assert.deepEqual(log[0].antes, { status: 'pendente' });
+  assert.deepEqual(log[0].depois, { status: 'pago', valorCentavos: 26499 });
+  assert.equal(log[0].origem, 'webhook');
+});
+
+test('atividades: divergente, expirado e cancelado; evento ignorado não gera log', async () => {
+  let { db, deps } = montar();
+  await processarWebhook(deps, cab(), checkoutPago({ items: [{ name: 'x', quantity: 1, value: 1 }] }));
+  assert.equal(atvs(db)[0].acao, 'pagamento_divergente');
+  ({ db, deps } = montar());
+  await processarWebhook(deps, cab(), { ...checkoutPago({}, 'evt_e&1'), event: 'CHECKOUT_EXPIRED' });
+  assert.equal(atvs(db)[0].acao, 'pagamento_expirado');
+  ({ db, deps } = montar({ pagamento: { status: 'pago', checkoutId: 'chk-1' } }));
+  await processarWebhook(deps, cab(), { ...checkoutPago({}, 'evt_e&2'), event: 'CHECKOUT_EXPIRED' });
+  await processarWebhook(deps, cab(), { id: 'evt_p&1', event: 'PAYMENT_RECEIVED', payment: {} });
+  assert.equal(atvs(db).length, 0);
+});
+
+test('atividades: consulta de status grava o log com o cliente como autor', async () => {
+  const { db, deps } = montarStatus([{ status: 'RECEIVED', value: 264.99 }]);
+  await consultar(deps);
+  await consultar(deps);
+  const log = atvs(db);
+  assert.equal(log.length, 1);
+  assert.deepEqual([log[0].acao, log[0].atorUid, log[0].atorPapel, log[0].origem], ['pagamento_confirmado', 'ana', 'cliente', 'consulta']);
+});

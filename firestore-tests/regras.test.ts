@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment
 } from '@firebase/rules-unit-testing';
-import { Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { getAggregateFromServer, sum, count as contar, Timestamp, serverTimestamp, collection, deleteDoc, doc, getCountFromServer, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 // Roda contra o Firebase Emulator: `npm run test:rules`
 let env: RulesTestEnvironment;
@@ -1279,5 +1279,199 @@ describe('pagamento: campo "pagamento", eventosAsaas e clientesAsaas só pelo se
       await assertFails(setDoc(doc(como('novo'), 'users', 'novo'), { nome: 'x', email: 'x@ex.com', role: 'cliente', condominioId: null, asaasCustomerId: 'cus_1' }));
       await assertFails(getDoc(doc(como('ana'), 'clientesAsaas', 'ana')));
     });
+  });
+});
+
+describe('atividades (log imutável)', () => {
+  const ativ = (uid: string, extra: Record<string, unknown> = {}) => ({
+    em: serverTimestamp(),
+    atorUid: uid,
+    atorPapel: PERFIS[uid].role,
+    acao: 'status_agendamento',
+    alvoTipo: 'agendamento',
+    alvoId: 'ag1',
+    antes: { status: 'agendado' },
+    depois: { status: 'em_andamento' },
+    origem: 'app',
+    ...extra
+  });
+  const preco = (extra: Record<string, unknown> = {}) =>
+    ativ('adm', { acao: 'preco_alterado', alvoTipo: 'servico', alvoId: 's1', antes: { precoCentavos: 6500 }, depois: { precoCentavos: 7000 }, ...extra });
+  const login = (extra: Record<string, unknown> = {}) =>
+    ativ('adm', { acao: 'login_admin', alvoTipo: 'usuario', alvoId: 'adm', antes: undefined, depois: undefined, ...extra });
+  const limpo = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+  it('create válido: status (gerente, funcionário, cliente), preço e login (admin)', async () => {
+    await assertSucceeds(setDoc(doc(como('gui'), 'atividades', 'a1'), ativ('gui')));
+    await assertSucceeds(setDoc(doc(como('fun'), 'atividades', 'a2'), ativ('fun')));
+    await assertSucceeds(setDoc(doc(como('ana'), 'atividades', 'a3'), ativ('ana', { depois: { status: 'cancelado' } })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'a4'), preco()));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'a5'), limpo(login())));
+  });
+
+  it('forjar outro atorUid ou outro papel é negado', async () => {
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f1'), ativ('ana', { atorUid: 'gui' })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f2'), ativ('ana', { atorPapel: 'admin' })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'f3'), ativ('ana', { atorUid: 'adm', atorPapel: 'admin' })));
+  });
+
+  it('só o admin registra preço e login; cliente não registra preço', async () => {
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'p1'), ativ('gui', { acao: 'preco_alterado', alvoTipo: 'servico', alvoId: 's1', antes: { precoCentavos: 1 }, depois: { precoCentavos: 2 } })));
+    await assertFails(setDoc(doc(como('ana'), 'atividades', 'p2'), ativ('ana', { acao: 'login_admin', alvoTipo: 'usuario', alvoId: 'ana' })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'p3'), limpo(login({ alvoId: 'ana' }))));
+  });
+
+  it('campos fora do formato são negados (hora do cliente, campo extra, e-mail, ação fora da lista, origem)', async () => {
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x1'), ativ('gui', { em: Timestamp.fromDate(new Date('2020-01-01')) })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x2'), ativ('gui', { email: 'a@b.com' })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x3'), ativ('gui', { depois: { status: 'em_andamento', email: 'a@b.com' } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x4'), ativ('gui', { depois: { status: 'qualquer' } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x5'), ativ('gui', { acao: 'usuario_removido', alvoTipo: 'usuario' })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'x6'), ativ('gui', { origem: 'api' })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'x7'), preco({ depois: { precoCentavos: 7000.5 } })));
+    await assertFails(setDoc(doc(como(null), 'atividades', 'x8'), ativ('gui')));
+  });
+
+  it('update e delete negados a todos, inclusive ao autor e ao admin', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'atividades', 'e1'), { ...ativ('gui'), em: Timestamp.now() }));
+    for (const uid of ['gui', 'adm', 'ana']) {
+      await assertFails(updateDoc(doc(como(uid), 'atividades', 'e1'), { acao: 'preco_alterado' }));
+      await assertFails(deleteDoc(doc(como(uid), 'atividades', 'e1')));
+      await assertFails(setDoc(doc(como(uid), 'atividades', 'e1'), { ...ativ(uid), alvoId: 'outro' }));
+    }
+  });
+
+  it('leitura só do admin (nem o autor, nem o gerente, nem anônimo)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'atividades', 'l1'), { ...ativ('gui'), em: Timestamp.now() }));
+    await assertSucceeds(getDoc(doc(como('adm'), 'atividades', 'l1')));
+    for (const uid of ['gui', 'ana', 'fun']) await assertFails(getDoc(doc(como(uid), 'atividades', 'l1')));
+    await assertFails(getDoc(doc(como(null), 'atividades', 'l1')));
+    await assertSucceeds(getDocs(query(collection(como('adm'), 'atividades'))));
+    await assertFails(getDocs(query(collection(como('gui'), 'atividades'))));
+  });
+
+  it('o log não é exigido por nenhuma outra regra (compatível com a build antiga do app)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'servicos', 's9'), { nome: 'X', precoCentavos: 100, duracaoMin: 30, ativo: true }));
+    await assertSucceeds(updateDoc(doc(como('adm'), 'servicos', 's9'), { precoCentavos: 200 }));
+  });
+});
+
+describe('custos (só admin)', () => {
+  const custo = (extra: Record<string, unknown> = {}) => ({
+    categoria: 'produtos',
+    descricao: 'Shampoo',
+    valorCentavos: 125050,
+    competencia: '2030-03-01',
+    tipo: 'avulso',
+    escopo: 'geral',
+    criadoPor: 'adm',
+    criadoEm: serverTimestamp(),
+    ...extra
+  });
+  const semear = (id = 'k1', extra: Record<string, unknown> = {}) =>
+    env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'custos', id), { ...custo(extra), criadoEm: Timestamp.now() }));
+
+  it('admin cria avulso, recorrente (com e sem fim) e por condomínio', async () => {
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'a'), custo()));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'b'), custo({ tipo: 'recorrente', recorrencia: 'mensal', fim: '2030-08-01' })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'c'), custo({ tipo: 'recorrente', recorrencia: 'mensal', fim: null })));
+    await assertSucceeds(setDoc(doc(como('adm'), 'custos', 'd'), custo({ escopo: 'c1' })));
+  });
+
+  it('ninguém além do admin lê, cria, altera ou apaga', async () => {
+    await semear();
+    for (const uid of ['ana', 'gui', 'fun']) {
+      await assertFails(getDoc(doc(como(uid), 'custos', 'k1')));
+      await assertFails(setDoc(doc(como(uid), 'custos', 'n'), custo({ criadoPor: uid })));
+      await assertFails(updateDoc(doc(como(uid), 'custos', 'k1'), { descricao: 'x', atualizadoEm: serverTimestamp() }));
+      await assertFails(deleteDoc(doc(como(uid), 'custos', 'k1')));
+    }
+    await assertFails(getDoc(doc(como(null), 'custos', 'k1')));
+    await assertFails(setDoc(doc(como(null), 'custos', 'n'), custo()));
+  });
+
+  it('formato inválido é negado (categoria, valor, competência, tipo, escopo, autor, hora, campo extra)', async () => {
+    const ruins: Record<string, unknown>[] = [
+      { categoria: 'invalida' },
+      { descricao: '' },
+      { valorCentavos: 0 },
+      { valorCentavos: 10.5 },
+      { valorCentavos: 200000000 },
+      { competencia: '2030-03-15' },
+      { competencia: '2030-13-01' },
+      { tipo: 'avulso', recorrencia: 'mensal' },
+      { tipo: 'recorrente' },
+      { tipo: 'recorrente', recorrencia: 'mensal', fim: '2030-01-01' },
+      { escopo: 'condominio-que-nao-existe' },
+      { criadoPor: 'gui' },
+      { criadoEm: Timestamp.fromDate(new Date('2020-01-01')) },
+      { email: 'a@b.com' }
+    ];
+    for (const [i, r] of ruins.entries()) await assertFails(setDoc(doc(como('adm'), 'custos', `r${i}`), custo(r)));
+  });
+
+  it('update: admin altera valor; autor e data de criação não mudam; sem carimbo de hora é negado', async () => {
+    await semear();
+    const base = { categoria: 'produtos', descricao: 'Shampoo', competencia: '2030-03-01', tipo: 'avulso', escopo: 'geral' };
+    await assertSucceeds(updateDoc(doc(como('adm'), 'custos', 'k1'), { ...base, valorCentavos: 99900, atualizadoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { valorCentavos: 100 }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { criadoPor: 'gui', atualizadoEm: serverTimestamp() }));
+    await assertFails(updateDoc(doc(como('adm'), 'custos', 'k1'), { valorCentavos: -1, atualizadoEm: serverTimestamp() }));
+  });
+
+  it('admin apaga', async () => {
+    await semear();
+    await assertSucceeds(deleteDoc(doc(como('adm'), 'custos', 'k1')));
+  });
+
+  it('log de custo: só admin registra, só com categoria e valor', async () => {
+    const log = (uid: string, extra: Record<string, unknown> = {}) => ({
+      em: serverTimestamp(), atorUid: uid, atorPapel: PERFIS[uid].role, acao: 'custo_criado', alvoTipo: 'custo', alvoId: 'k1',
+      depois: { categoria: 'produtos', valorCentavos: 125050 }, origem: 'app', ...extra
+    });
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'l1'), log('adm')));
+    await assertSucceeds(setDoc(doc(como('adm'), 'atividades', 'l2'), log('adm', { acao: 'custo_alterado', antes: { categoria: 'produtos', valorCentavos: 1 } })));
+    await assertFails(setDoc(doc(como('gui'), 'atividades', 'l3'), log('gui')));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'l4'), log('adm', { depois: { descricao: 'segredo', valorCentavos: 1 } })));
+    await assertFails(setDoc(doc(como('adm'), 'atividades', 'l5'), log('adm', { alvoTipo: 'servico' })));
+  });
+});
+
+const expectEq = (a: unknown, b: unknown) => { if (a !== b) throw new Error(`esperado ${String(b)}, veio ${String(a)}`); };
+
+describe('leituras do dashboard (agregações, só admin)', () => {
+  const semearPago = (id: string, total: number, status = 'pago') =>
+    env.withSecurityRulesDisabled(async (ctx) =>
+      setDoc(doc(ctx.firestore(), 'agendamentos', id), {
+        clienteId: 'ana', condominioId: 'c1', status: 'finalizado', total,
+        inicio: Timestamp.fromDate(new Date('2030-06-10T12:00:00Z')),
+        pagamento: { status, pagoEm: Timestamp.fromDate(new Date('2030-06-10T13:00:00Z')) }
+      })
+    );
+
+  it('admin: count de usuários por papel, count por status/período e sum do faturamento (só pagos)', async () => {
+    await semearPago('p1', 6500);
+    await semearPago('p2', 20000);
+    await semearPago('p3', 99999, 'pendente');
+    const db = como('adm');
+    const clientes = await assertSucceeds(getCountFromServer(query(collection(db, 'users'), where('role', '==', 'cliente'))));
+    expectEq(clientes.data().count, 7);
+    const q = query(
+      collection(db, 'agendamentos'),
+      where('pagamento.status', '==', 'pago'),
+      where('pagamento.pagoEm', '>=', Timestamp.fromDate(new Date('2030-06-01T00:00:00Z'))),
+      where('pagamento.pagoEm', '<', Timestamp.fromDate(new Date('2030-07-01T00:00:00Z')))
+    );
+    const r = await assertSucceeds(getAggregateFromServer(q, { total: sum('total'), pagos: contar() }));
+    expectEq(r.data().total, 26500);
+    expectEq(r.data().pagos, 2);
+  });
+
+  it('não-admin não agrega agendamentos de todos nem conta usuários', async () => {
+    await semearPago('p1', 6500);
+    for (const uid of ['gui', 'ana', 'fun']) {
+      await assertFails(getCountFromServer(query(collection(como(uid), 'agendamentos'), where('status', '==', 'finalizado'))));
+      await assertFails(getCountFromServer(query(collection(como(uid), 'users'), where('role', '==', 'cliente'))));
+    }
   });
 });

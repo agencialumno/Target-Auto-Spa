@@ -1,6 +1,7 @@
 // Catálogo de serviços. O texto (descrição, itens incluídos, ícone) vem de catalogo-base.ts;
 // o preço, a duração e a disponibilidade que valem vêm do Firestore (coleção servicos).
 // As regras do agendamento conferem o preço contra o documento do Firestore.
+import { registrarAtividade } from './atividades';
 import { collection, doc, onSnapshot, updateDoc, writeBatch, type DocumentData } from 'firebase/firestore';
 import { servicosBase, type Servico } from './catalogo-base';
 import { db } from './firebase';
@@ -85,7 +86,12 @@ export async function publicarCatalogoInicial(): Promise<number> {
 // Admin: troca o preço (em centavos inteiros) de um serviço publicado
 export async function salvarPrecoServico(id: string, precoCentavos: number) {
   if (!Number.isInteger(precoCentavos) || precoCentavos <= 0) throw new Error('Preço inválido.');
+  const antes = servicos.find((s) => s.id === id)?.precoCentavos;
   await updateDoc(doc(db, 'servicos', id), { precoCentavos });
+  void registrarAtividade(
+    { acao: 'preco_alterado', alvoId: id, ...(typeof antes === 'number' ? { antes: { precoCentavos: antes } } : {}), depois: { precoCentavos } },
+    'admin'
+  );
 }
 
 export async function alternarServico(id: string, ativo: boolean) {

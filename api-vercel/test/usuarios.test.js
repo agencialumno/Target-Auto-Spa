@@ -248,3 +248,43 @@ test('detalharUsuario: só admin; devolve só data de cadastro e último acesso'
   await assert.rejects(detalharUsuario(deps, 'Bearer adm', { uid: '../x' }), { status: 400 });
   await assert.rejects(detalharUsuario(deps, 'Bearer adm', { uid: 'sumiu' }), { status: 404 });
 });
+
+// ---------- log de atividades ----------
+const atividades = (d) => [...d.docs.entries()].filter(([k]) => k.startsWith('atividades/')).map(([, v]) => v);
+
+test('atividades: criar, vincular e remover gravam o log só com papel, uid e condomínio (nunca e-mail ou nome)', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  const { uid } = await criarUsuario(d, bearer('a1'), { ...corpoValido, role: 'cliente' });
+  await definirCondominio(d, bearer('a1'), { uid, condominioId: 'c2' });
+  await removerUsuario(d, bearer('a1'), { uid });
+  const log = atividades(d);
+  assert.deepEqual(log.map((a) => a.acao), ['usuario_criado', 'condominio_vinculado', 'usuario_removido']);
+  assert.equal(log[0].alvoId, uid);
+  assert.deepEqual(log[0].depois, { papel: 'cliente', condominioId: 'c1' });
+  assert.deepEqual(log[1].antes, { condominioId: 'c1' });
+  assert.deepEqual(log[1].depois, { condominioId: 'c2' });
+  assert.deepEqual(log[2].antes, { papel: 'cliente', condominioId: 'c2' });
+  for (const a of log) {
+    assert.equal(a.atorUid, 'a1');
+    assert.equal(a.atorPapel, 'admin');
+    assert.ok(a.em instanceof Date);
+  }
+  const texto = JSON.stringify(log);
+  for (const proibido of ['fulano', 'Fulano', '@ex.com', SENHA]) assert.equal(texto.includes(proibido), false, proibido);
+});
+
+test('atividades: ação recusada não gera log; falha ao gravar o log não derruba a ação', async () => {
+  const d = criarDeps({ papeis: { a1: 'admin' } });
+  await status(criarUsuario(d, bearer('a1'), { ...corpoValido, senha: 'fraca' }));
+  assert.equal(atividades(d).length, 0);
+  const original = d.db.doc;
+  d.db.doc = (c) => (c.startsWith('atividades/') ? { set: async () => { throw Object.assign(new Error('x'), { name: 'Falha' }); } } : original(c));
+  const silencio = console.error;
+  console.error = () => {};
+  try {
+    const { uid } = await criarUsuario(d, bearer('a1'), corpoValido);
+    assert.ok(d.docs.has(`users/${uid}`));
+  } finally {
+    console.error = silencio;
+  }
+});

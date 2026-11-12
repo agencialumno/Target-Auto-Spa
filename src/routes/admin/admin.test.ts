@@ -132,9 +132,9 @@ describe('tela inicial do admin', () => {
     await waitFor(() => expect(cartao).toHaveTextContent(contexto));
   });
 
-  it('são exatamente 5 cartões', () => {
+  it('são exatamente 8 cartões (inclui Dashboard, Custos e Atividades)', () => {
     render(Home);
-    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(5);
+    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(8);
   });
 
   it('não tem entrada para mensagens (o cliente fala com o gerente, não com o admin)', () => {
