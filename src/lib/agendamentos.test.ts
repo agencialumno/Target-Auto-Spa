@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Timestamp } from 'firebase/firestore';
 import {
+  aguardaConfirmacaoPagamento,
   caminhoFoto,
   chaveFoto,
   faltamFotos,
@@ -237,5 +238,16 @@ describe('pagamento', () => {
     [{ status: 'cancelado' as const, pagamento: pag('cancelado') }, 'cancelado']
   ])('situacaoPagamento %#', (ag, esperado) => {
     expect(situacaoPagamento(ag as any, agora)).toBe(esperado);
+  });
+});
+
+describe('aguardaConfirmacaoPagamento', () => {
+  it.each([
+    [{ status: 'agendado', pagamento: { status: 'pendente', venceEm: null, revisao: false } }, true],
+    [{ status: 'agendado', pagamento: { status: 'pago', venceEm: null, revisao: false } }, false],
+    [{ status: 'agendado', pagamento: null }, false],
+    [{ status: 'cancelado', pagamento: { status: 'pendente', venceEm: null, revisao: false } }, false]
+  ])('%#', (ag, esperado) => {
+    expect(aguardaConfirmacaoPagamento(ag as any)).toBe(esperado);
   });
 });

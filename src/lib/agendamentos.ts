@@ -241,3 +241,7 @@ export function lerAgendamento(id: string, d: DocumentData): Agendamento {
     criadoEm: paraData(d.criadoEm)
   };
 }
+
+// Vale consultar o Asaas? Só enquanto o app ainda mostra "pendente" (rede de segurança do webhook)
+export const aguardaConfirmacaoPagamento = (ag: Pick<Agendamento, 'status' | 'pagamento'>) =>
+  ag.status === 'agendado' && ag.pagamento?.status === 'pendente';

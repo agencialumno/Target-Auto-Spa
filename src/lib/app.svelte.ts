@@ -44,7 +44,8 @@ import {
   type Item,
   type NovoAgendamento,
   type Status,
-  type Veiculo
+  type Veiculo,
+  aguardaConfirmacaoPagamento
 } from './agendamentos';
 
 export { ordemStatus, rotuloStatus } from './agendamentos';
@@ -497,6 +498,27 @@ class App {
     const { link } = await this.criarCheckout(id);
     if (!/^https:\/\//.test(link)) throw new Error('Link de pagamento inválido.');
     await openUrl(link);
+  }
+
+  // Rede de segurança do webhook: pede ao servidor para conferir no Asaas os pagamentos que o app ainda
+  // mostra como pendentes. O servidor grava; o selo "Pago" chega pelo Firestore em tempo real.
+  private sincronizandoPagamento = new Map<string, number>();
+  async sincronizarPagamentos() {
+    if (this.sessao?.role !== 'cliente') return;
+    const agora = Date.now();
+    const alvos = this.agendamentos.filter(
+      (a) => a.clienteId === this.sessao?.uid && aguardaConfirmacaoPagamento(a) && agora - (this.sincronizandoPagamento.get(a.id) ?? 0) > 4000
+    );
+    await Promise.all(
+      alvos.map(async (a) => {
+        this.sincronizandoPagamento.set(a.id, agora);
+        try {
+          await chamarApi('status', { agendamentoId: a.id }, 'pagamento');
+        } catch {
+          // sem rede ou serviço fora: tenta de novo na próxima vez que o app voltar ao primeiro plano
+        }
+      })
+    );
   }
 
   // Cancela e libera a vaga no mesmo batch

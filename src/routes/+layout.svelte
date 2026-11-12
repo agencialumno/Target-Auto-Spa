@@ -38,7 +38,16 @@
     document.addEventListener('gesturechange', bloquear);
     document.addEventListener('gestureend', bloquear);
 
+    // Voltou do navegador (pagamento) ao primeiro plano: confere o pagamento no servidor
+    const aoVoltar = () => {
+      if (document.visibilityState === 'visible') app.sincronizarPagamentos();
+    };
+    document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
+
     return () => {
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
       clearTimeout(tempo);
       document.removeEventListener('gesturestart', bloquear);
       document.removeEventListener('gesturechange', bloquear);

@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icone from '$lib/components/Icone.svelte';
   import { app, rotuloStatus, type Agendamento } from '$lib/app.svelte';
-  import { brlCentavos, nomesItens } from '$lib/agendamentos';
+  import { onMount } from 'svelte';
+  import { brlCentavos, nomesItens, rotuloPagamento, situacaoPagamento } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
 
   const andamento = $derived(
@@ -12,6 +13,9 @@
   );
 
   const nomes = (a: Agendamento) => nomesItens(a.itens);
+
+  // Ao abrir a lista, confere no servidor os pagamentos ainda pendentes
+  onMount(() => void app.sincronizarPagamentos());
 </script>
 
 {#snippet cartao(a: Agendamento)}
@@ -21,6 +25,7 @@
       <small class="quando">{dataCurta(a.data)} às {a.hora}</small>
       <span class="rodape">
         <span class={`selo-status ${a.status}`}>{rotuloStatus[a.status]}</span>
+        {#if situacaoPagamento(a) === 'pago'}<span class="selo-status finalizado">{rotuloPagamento.pago}</span>{/if}
         <b>{brlCentavos(a.total)}</b>
       </span>
     </span>

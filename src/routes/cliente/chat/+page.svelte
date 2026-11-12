@@ -1,14 +1,28 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import Icone from '$lib/components/Icone.svelte';
-  import { app } from '$lib/app.svelte';
+  import { app, rotuloStatus } from '$lib/app.svelte';
+  import { authStore } from '$lib/auth.svelte';
+  import { brlCentavos, nomesItens } from '$lib/agendamentos';
+  import { dataCurta } from '$lib/formato';
 
   let texto = $state('');
   let fim = $state<HTMLDivElement>();
 
   let erro = $state('');
 
+  // Sem condomínio no perfil não há gerente para responder (a conversa nem pode ser criada)
+  const semCondominio = $derived(!authStore.perfil?.condominioId);
+  // Estado das solicitações do cliente, mais recentes primeiro
+  const solicitacoes = $derived(
+    app.agendamentos.filter((a) => a.clienteId === authStore.usuario?.uid).slice(0, 3)
+  );
+
   async function enviar() {
+    if (semCondominio) {
+      erro = 'Seu perfil não está ligado a um condomínio. Entre com o código do condomínio para falar com o gerente.';
+      return;
+    }
     const t = texto;
     if (!t.trim()) {
       erro = 'Escreva uma mensagem antes de enviar.';
@@ -45,6 +59,24 @@
   <section class="folha conversa">
     <div class="folha-alca"></div>
 
+    {#if solicitacoes.length}
+      <div class="solicitacoes" aria-label="Suas solicitações">
+        <strong>Suas solicitações</strong>
+        {#each solicitacoes as a (a.id)}
+          <a href={`/cliente/agendamentos/${a.id}`}>
+            <span>{nomesItens(a.itens)} · {dataCurta(a.data)} às {a.hora}</span>
+            <small>{rotuloStatus[a.status]} · {brlCentavos(a.total)}</small>
+          </a>
+        {/each}
+      </div>
+    {/if}
+
+    {#if semCondominio}
+      <p class="demo" role="alert">Seu perfil não está ligado a um condomínio, então não há gerente para responder.</p>
+    {:else if app.mensagens.length === 0}
+      <p class="demo">Nenhuma mensagem ainda. Escreva abaixo para falar com o gerente do seu condomínio.</p>
+    {/if}
+
     <div class="mensagens">
       {#each app.mensagens as m (m.id)}
         <div class={`bolha ${m.de}`}>
@@ -72,6 +104,28 @@
 <style>
   .conversa {
     padding-bottom: calc(96px + var(--safe-bottom));
+  }
+
+  .solicitacoes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .solicitacoes a {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--card);
+    border: 1px solid var(--card-borda);
+    color: var(--texto);
+    font-size: 0.85rem;
+  }
+
+  .solicitacoes small {
+    color: var(--texto-suave);
   }
 
   .mensagens {

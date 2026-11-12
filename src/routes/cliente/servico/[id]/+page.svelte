@@ -92,10 +92,12 @@
                 </p>
             {/if}
 
-            <p class="selo">
-                <Icone nome="leaf" tamanho={18} />
-                Produtos biodegradáveis, sem soda cáustica.
-            </p>
+            {#if servico.categoria === "lavagem" || servico.categoria === "higienizacao"}
+                <p class="selo">
+                    <Icone nome="leaf" tamanho={18} />
+                    Produtos biodegradáveis, sem soda cáustica.
+                </p>
+            {/if}
 
             <h2>O que está incluso</h2>
             <ul class="inclui">
