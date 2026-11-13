@@ -16,11 +16,12 @@ export async function contarUsuarios(): Promise<Record<Papel, number>> {
   return Object.fromEntries(PAPEIS.map((p, i) => [p, r[i].data().count])) as Record<Papel, number>;
 }
 
-// Índice existente: agendamentos (status, inicio desc)
+// Índice: agendamentos (status, inicio desc). O orderBy explícito em inicio desc faz a consulta casar
+// exatamente com ele (sem orderBy o Firestore pede a ordem ascendente); contagem não muda com a ordenação.
 export async function contarPorStatus(inicio: Date, fim: Date): Promise<Record<Status, number>> {
   const r = await Promise.all(
     STATUS_ORDEM.map((s) =>
-      getCountFromServer(query(collection(db, 'agendamentos'), where('status', '==', s), where('inicio', '>=', inicio), where('inicio', '<', fim)))
+      getCountFromServer(query(collection(db, 'agendamentos'), where('status', '==', s), where('inicio', '>=', inicio), where('inicio', '<', fim), orderBy('inicio', 'desc')))
     )
   );
   return Object.fromEntries(STATUS_ORDEM.map((s, i) => [s, r[i].data().count])) as Record<Status, number>;

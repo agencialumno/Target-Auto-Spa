@@ -98,6 +98,22 @@
         { "fieldPath": "pagamento.pagoEm", "order": "ASCENDING" },
         { "fieldPath": "total", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "inicio", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "funcionarioId", "order": "ASCENDING" },
+        { "fieldPath": "inicio", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
