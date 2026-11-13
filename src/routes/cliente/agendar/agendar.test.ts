@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import '@testing-library/jest-dom/vitest';
 
@@ -27,13 +27,20 @@ import { servicos } from '$lib/catalogo.svelte';
 import { reserva } from '$lib/reserva.svelte';
 import Pagina from './+page.svelte';
 
+// A tela só mostra horários que ainda não passaram (usa new Date()): congela só o Date
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 10, 13, 8, 0, 0)); // hora local: vale em qualquer fuso (o CI roda em UTC)
   vi.clearAllMocks();
   m.horarioLivre.mockReturnValue(true);
   m.criarAgendamento.mockResolvedValue('ag-novo');
   for (const s of servicos) Object.assign(s, { publicado: true, ativo: true });
   reserva.reiniciar();
   reserva.escolher('eco04'); // 90 min
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const preencher = async () => {
