@@ -1,8 +1,11 @@
 <script lang="ts">
-  import Entrada from '../../Entrada.svelte';
+  import Entrada from "../../Entrada.svelte";
+  import Shell from "../../Shell.svelte";
   let { children } = $props();
 </script>
 
 <Entrada>
-  {@render children()}
+  <Shell>
+    {@render children()}
+  </Shell>
 </Entrada>

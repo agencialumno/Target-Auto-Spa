@@ -139,3 +139,38 @@ Ainda abertas:
 - `web-admin/vercel.json`: configuração e cabeçalhos do projeto Web (não há `vercel.json` na raiz).
 - `firestore.indexes.json`: índice `agendamentos (funcionarioId, status, inicio desc)` adicionado (não implantado).
 - `api-vercel/_lib/http.js`: origem `https://admin.targetautospa.com.br` no CORS (não implantado).
+
+## 9. Entregas 2 e 3 (lote 8): telas de gestão, relatórios e mensagens
+
+Tudo em `src/web/` e `src/lib/web/`, só existe no build `BUILD_WEB_ADMIN=1`. Nenhum arquivo do app de celular foi alterado (o diff contra a lote-7 só toca essas duas pastas).
+
+**Telas** (barra lateral em `Shell.svelte`): Dashboard, Usuários, Agendamentos, Pagamentos, Serviços e preços, Custos, Atividades, Avaliações, Relatórios, Mensagens. Serviços/preços, Custos, Atividades, Avaliações e os detalhes (usuário, agendamento) reaproveitam as páginas do app; o `Shell` só tira a moldura de celular por CSS.
+
+**Estados**: toda tabela/relatório mostra Carregando, Vazio e Erro com o código do Firestore (`descreverErro`) e botão "Tentar de novo".
+
+**Limites conhecidos** (avisados na tela): agendamentos até 2000 por consulta (reduza o período), usuários até 2000, conversas até 200, mensagens até 500. Ordenação e paginação das tabelas são no navegador sobre o que foi carregado.
+
+### Consultas novas e índices
+
+| Tela | Consulta | Índice | Situação |
+|---|---|---|---|
+| Usuários | `users` limit 2000 | nenhum | ok |
+| Agendamentos / Pagamentos / Relatórios, só período | `inicio >= e < ` orderBy `inicio desc` | campo único `inicio` (automático) | existe |
+| + status | `status ==` + período | `(status, inicio desc)` | existe |
+| + condomínio | `condominioId ==` + período | `(condominioId, inicio desc)` | existe |
+| + status + condomínio | os dois + período | `(condominioId, status, inicio desc)` | existe |
+| Filtro de pagamento | feito no navegador | nenhum | evita índice novo |
+| Relatórios (faturamento, serviço, status, funcionário) | a mesma consulta por período | nenhum | calculado no navegador |
+| Relatório de custos | `listarCustos` (existente) | `competencia desc` automático | ok |
+| Mensagens, lista | `chats` orderBy `ultimaHora desc` limit 200 | campo único (automático) | existe |
+| Mensagens, conversa | `chats/{id}/mensagens` orderBy `criadoEm asc` limit 500 | campo único (automático) | existe |
+
+**Índices a criar por causa desta etapa: nenhum.** (O índice `funcionarioId, status, inicio desc` da lote-7 continua no arquivo, não implantado; nenhuma tela desta etapa depende dele.)
+
+Regras: o admin já lê `chats` e `chats/{id}/mensagens` (`souAdmin()` nas regras). A tela de Mensagens não escreve nada (sem envio, sem "lida").
+
+### Pontos de atenção
+
+- Faturamento = agendamentos com pagamento "Pago", agrupados pela **data do agendamento** (não pela data do pagamento). Pagamento feito fora do período do agendamento aparece no período do agendamento.
+- CSV: separador `;`, BOM para acentos, células iniciadas por `=`, `+`, `-`, `@` (e tab/CR) ganham `'` na frente.
+- Só validável em navegador real, com o projeto Web na Vercel: aparência do CSS nas telas reaproveitadas (largura, cabeçalho), download do CSV, CSP real com o Firebase, login com popup do Google, e o carregamento com dados de produção (volumes e tempos).
