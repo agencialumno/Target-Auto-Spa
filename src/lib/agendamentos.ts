@@ -92,7 +92,9 @@ export type Agendamento = {
   avaliacao: Avaliacao | null;
   pagamento: Pagamento | null; // gravado só pelo servidor
   externo: boolean; // todos os itens são insulfilm (profissional externo); vem do catálogo
-  vagaId: string; // vaga em /ocupacao que este agendamento ocupa
+  vagaId: string; // vaga do horário inicial em /ocupacao
+  // Todas as vagas de 30 min que a duração cobre (reservas novas, feitas pela API). Reservas antigas: só vagaId.
+  vagasIds: string[];
   criadoEm: Date | null;
   atualizadoEm?: Date | null;
 };
@@ -244,6 +246,7 @@ export function lerAgendamento(id: string, d: DocumentData): Agendamento {
         }
       : null,
     vagaId: d.vagaId ?? '',
+    vagasIds: Array.isArray(d.vagasIds) ? d.vagasIds.filter((v: unknown): v is string => typeof v === 'string') : d.vagaId ? [d.vagaId] : [],
     criadoEm: paraData(d.criadoEm),
     atualizadoEm: paraData(d.atualizadoEm)
   };

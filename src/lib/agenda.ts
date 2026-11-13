@@ -5,6 +5,18 @@ export const GRADE_MIN = 30;
 export const ANTECEDENCIA_INSULFILM_H = 36;
 const HORARIOS_INSULFILM = ['09:00', '11:00', '14:00', '16:00'];
 
+// Horários de 30 min que um serviço cobre a partir de `hora` (90 min às 09:00 -> 09:00, 09:30, 10:00).
+// O servidor reserva exatamente estes (api-vercel/_lib/agendamento.js: slotsCobertos).
+export function slotsCobertos(hora: string, duracaoMin: number): string[] {
+  const [h, m] = hora.split(':').map(Number);
+  const n = Math.max(1, Math.ceil(duracaoMin / GRADE_MIN));
+  return Array.from({ length: n }, (_, k) => hhmm(h * 60 + m + k * GRADE_MIN));
+}
+
+// Um horário só é livre se TODOS os horários que o serviço precisa estão livres
+export const horarioLivreParaDuracao = (hora: string, duracaoMin: number, cheio: (hora: string) => boolean) =>
+  slotsCobertos(hora, duracaoMin).every((h) => !cheio(h));
+
 export const hhmm = (min: number) =>
   `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
 

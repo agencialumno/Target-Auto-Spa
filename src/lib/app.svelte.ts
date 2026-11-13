@@ -28,22 +28,19 @@ import { angulos360 } from './mock';
 import { getServico } from './catalogo.svelte';
 import { gastoJanela, nivelAtual, proximoNivel, type Compra } from './niveis';
 import { dataCurta } from './formato';
+import { horarioLivreParaDuracao } from './agenda';
 import {
   caminhoFoto,
   chaveFoto,
   faltamFotos,
   fotosFeitas,
-  idVaga,
   lerAgendamento,
-  montarVaga,
-  montarAgendamento,
   nomesItens,
   proximoStatus,
   type Agendamento,
   type Avaliacao,
   type Fase,
   type Item,
-  type NovoAgendamento,
   type Status,
   type Veiculo,
   aguardaConfirmacaoPagamento
@@ -105,6 +102,11 @@ class App {
   mensagens = $state<Mensagem[]>([]);
   conversas = $state<Conversa[]>([]);
   conversaAtiva = $state<string | null>(null);
+  // Estados visíveis do chat: carregando, pronto ou erro (com o código do Firestore)
+  conversasEstado = $state<'carregando' | 'pronto' | 'erro'>('carregando');
+  conversasErro = $state('');
+  mensagensEstado = $state<'carregando' | 'pronto' | 'erro'>('carregando');
+  mensagensErro = $state('');
   notificacoes = $state<Notificacao[]>([]);
   funcionarios = $state<Funcionario[]>([]);
   carregado = $state(false);
@@ -224,15 +226,7 @@ class App {
     }
 
     if (sessao.role === 'gerente' && sessao.condominioId) {
-      ouvir(
-        onSnapshot(
-          query(collection(db, 'chats'), where('condominioId', '==', sessao.condominioId), orderBy('ultimaHora', 'desc'), limit(100)),
-          (snap) => {
-            this.conversas = snap.docs.map((d) => this.lerConversa(d.id, d.data()));
-          },
-          () => {}
-        )
-      );
+      this.ouvirConversas(sessao.condominioId);
       ouvir(
         onSnapshot(
           query(collection(db, 'users'), where('role', '==', 'funcionario')),
@@ -247,6 +241,28 @@ class App {
     }
   }
 
+  // Lista de conversas do gerente. Índice: chats (condominioId, ultimaHora desc) — já existe.
+  private paradaConversas: Unsubscribe | null = null;
+  ouvirConversas(condominioId?: string) {
+    const cond = condominioId ?? this.sessao?.condominioId;
+    if (!cond) return;
+    this.paradaConversas?.();
+    this.conversasEstado = 'carregando';
+    this.conversasErro = '';
+    this.paradaConversas = onSnapshot(
+      query(collection(db, 'chats'), where('condominioId', '==', cond), orderBy('ultimaHora', 'desc'), limit(100)),
+      (snap) => {
+        this.conversas = snap.docs.map((d) => this.lerConversa(d.id, d.data()));
+        this.conversasEstado = 'pronto';
+      },
+      (e) => {
+        this.conversasErro = (e as { code?: string })?.code ?? 'erro';
+        this.conversasEstado = 'erro';
+      }
+    );
+    this.paradas.push(this.paradaConversas);
+  }
+
   parar() {
     for (const u of this.paradas) u();
     this.paradas = [];
@@ -257,6 +273,11 @@ class App {
     this.mensagens = [];
     this.conversas = [];
     this.conversaAtiva = null;
+    this.conversasEstado = 'carregando';
+    this.conversasErro = '';
+    this.mensagensEstado = 'carregando';
+    this.mensagensErro = '';
+    this.paradaConversas = null;
     this.notificacoes = [];
     this.funcionarios = [];
     this.carregado = false;
@@ -411,13 +432,18 @@ class App {
   }
 
   // ---- Agendamentos ----
-  // Cria o agendamento. O preço de cada item é o do catálogo publicado no Firestore (as regras conferem).
+  // Cria o agendamento pelo SERVIDOR (POST /api/agendamentos/criar): ele calcula preço e total pelo catálogo,
+  // reserva todos os horários de 30 min que a duração cobre e escolhe a vaga numa transação.
+  // Não há caminho de reserva pelo Firestore aqui: se a chamada falhar por rede/tempo, o app repete com a MESMA
+  // `chave` (o servidor devolve a mesma reserva em vez de criar outra). Um plano B direto no Firestore poderia
+  // duplicar a reserva (a resposta pode ter se perdido) e seguraria só um horário num serviço longo.
   async criarAgendamento(dados: {
     servicos: string[];
     data: string;
     hora: string;
     veiculo: Veiculo;
     observacoes?: string;
+    chave?: string;
   }): Promise<string> {
     const s = this.sessao;
     if (!s || s.role !== 'cliente' || !s.condominioId) throw new Error('Entre em um condomínio para agendar.');
@@ -426,51 +452,36 @@ class App {
       if (!sv?.publicado || sv.ativo === false) throw new Error('Serviço indisponível no momento.');
       return { servicoId: sv.id, nome: sv.nome, precoCentavos: sv.precoCentavos };
     });
-    // Externo (insulfilm): vem da categoria do catálogo; as regras conferem. Misturar com outro serviço é negado.
+    // Mensagem rápida; o servidor confere de novo
     const ehIns = (id: string) => getServico(id)?.categoria === 'insulfilm';
     const externo = itens.every((i) => ehIns(i.servicoId));
     if (!externo && itens.some((i) => ehIns(i.servicoId))) {
       throw new Error('Insulfilm precisa ser agendado separado dos outros serviços.');
     }
-    const alvo = { externo, condominioId: s.condominioId, data: dados.data, hora: dados.hora };
-    const ref = doc(collection(db, 'agendamentos'));
-    const capacidade = externo ? this.capacidadeExterna : this.capacidade;
-
-    // Tenta a vaga 1..capacidade. O agendamento e a vaga vão no mesmo batch: se outra pessoa pegou a
-    // vaga, o batch inteiro é recusado e passamos à próxima.
-    for (let n = 1; n <= capacidade; n++) {
-      const vagaId = idVaga(alvo, n);
-      const novo: NovoAgendamento = {
-        clienteId: s.uid,
-        clienteNome: s.nome || 'Cliente',
-        condominioId: s.condominioId,
-        itens,
+    const r = (await chamarApi(
+      'criar',
+      {
+        servicos: dados.servicos,
         data: dados.data,
         hora: dados.hora,
         veiculo: dados.veiculo,
-        observacoes: dados.observacoes,
-        externo,
-        vagaId
-      };
-      const lote = writeBatch(db);
-      lote.set(ref, montarAgendamento(novo, serverTimestamp()));
-      lote.set(doc(db, 'ocupacao', vagaId), montarVaga(alvo, ref.id));
-      try {
-        await lote.commit();
-        this.notificar({
-          tipo: 'agendamento',
-          titulo: 'Agendamento confirmado',
-          texto: `${nomesItens(itens)} · ${dataCurta(dados.data)} às ${dados.hora}`,
-          agendamentoId: ref.id
-        });
-        return ref.id;
-      } catch (e) {
-        // Só segue para a próxima vaga se esta já existe; outro erro (preço mudou, sem rede) é repassado
-        const ocupada = await getDoc(doc(db, 'ocupacao', vagaId)).then((d) => !!d?.exists()).catch(() => false);
-        if (!ocupada) throw e;
-      }
-    }
-    throw new Error('Horário indisponível. Escolha outro horário.');
+        observacoes: dados.observacoes ?? '',
+        ...(dados.chave ? { chave: dados.chave } : {})
+      },
+      'agendamentos'
+    )) as { id: string };
+    this.notificar({
+      tipo: 'agendamento',
+      titulo: 'Agendamento confirmado',
+      texto: `${nomesItens(itens)} · ${dataCurta(dados.data)} às ${dados.hora}`,
+      agendamentoId: r.id
+    });
+    return r.id;
+  }
+
+  // Livre para a duração: todos os horários de 30 min que o serviço cobre têm vaga
+  horarioLivre(data: string, hora: string, duracaoMin: number, externo: boolean): boolean {
+    return horarioLivreParaDuracao(hora, duracaoMin, (h) => this.horarioCheio(data, h, externo));
   }
 
   // Horário cheio: todas as vagas do horário (1..capacidade) já existem
@@ -527,7 +538,8 @@ class App {
     const ag = this.agendamentos.find((a) => a.id === id);
     const lote = writeBatch(db);
     lote.update(doc(db, 'agendamentos', id), { status: 'cancelado', atualizadoEm: serverTimestamp() });
-    if (ag?.vagaId) lote.delete(doc(db, 'ocupacao', ag.vagaId));
+    // Reservas novas seguram várias vagas de 30 min: libera todas (as regras de delete valem para cada uma)
+    for (const v of ag?.vagasIds?.length ? ag.vagasIds : ag?.vagaId ? [ag.vagaId] : []) lote.delete(doc(db, 'ocupacao', v));
     await lote.commit();
     if (ag) void registrarAtividade({ acao: 'status_agendamento', alvoId: id, antes: { status: ag.status }, depois: { status: 'cancelado' } }, this.sessao?.role);
   }
@@ -612,6 +624,8 @@ class App {
     this.paradaMensagens?.();
     this.conversaAtiva = chatId;
     this.mensagens = [];
+    this.mensagensEstado = 'carregando';
+    this.mensagensErro = '';
     let primeira = true;
     this.paradaMensagens = onSnapshot(
       query(collection(db, 'chats', chatId, 'mensagens'), orderBy('criadoEm', 'asc'), limit(500)),
@@ -636,9 +650,21 @@ class App {
           }
         }
         primeira = false;
+        this.mensagensEstado = 'pronto';
       },
-      () => {}
+      (e) => {
+        this.mensagensErro = (e as { code?: string })?.code ?? 'erro';
+        this.mensagensEstado = 'erro';
+      }
     );
+  }
+
+  // "Tentar de novo" da conversa aberta
+  reabrirConversa() {
+    const id = this.conversaAtiva;
+    if (!id) return;
+    this.conversaAtiva = null;
+    this.abrirConversa(id);
   }
 
   fecharConversa() {

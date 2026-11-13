@@ -64,7 +64,16 @@
             class:ativa={ativa("/cliente/perfil")}
             href="/cliente/perfil"
         >
-            <Icone nome="user" />
+            <span class="icone-aba">
+                <Icone nome="user" />
+                {#if app.msgNaoLidasCliente > 0}
+                    <span class="selo" aria-label="Novas mensagens do gerente"
+                        >{app.msgNaoLidasCliente > 9
+                            ? "9+"
+                            : app.msgNaoLidasCliente}</span
+                    >
+                {/if}
+            </span>
             <span>Perfil</span>
         </a>
     </nav>

@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte';
   import Icone from '$lib/components/Icone.svelte';
   import { app } from '$lib/app.svelte';
+  import { contadorNovas, ordenarConversas, resumir, rotuloMensagem, rotuloQuando, textoNovas } from '$lib/chat';
 
   let texto = $state('');
   let fim = $state<HTMLDivElement>();
@@ -24,6 +25,7 @@
     }
   }
 
+  const ordenadas = $derived(ordenarConversas(app.conversas));
   const conversa = $derived(app.conversas.find((c) => c.id === app.conversaAtiva));
 
   // Sai da conversa ao deixar a tela (para não ficar ouvindo mensagens em segundo plano)
@@ -58,24 +60,51 @@
     <div class="folha-alca"></div>
 
     {#if !app.conversaAtiva}
-      {#if app.conversas.length === 0}
+      {#if app.conversasEstado === 'carregando'}
+        <p class="demo" role="status">Carregando conversas...</p>
+      {:else if app.conversasEstado === 'erro'}
+        <p class="demo" role="alert">Não foi possível carregar as conversas ({app.conversasErro}).</p>
+        <button type="button" class="btn-secundario" onclick={() => app.ouvirConversas()}>Tentar de novo</button>
+      {:else if ordenadas.length === 0}
         <p class="demo">Nenhum cliente enviou mensagem ainda.</p>
+      {:else}
+        {#if app.msgNaoLidasGerente > 0}
+          <p class="aviso-novas" role="status">{textoNovas(app.msgNaoLidasGerente)}</p>
+        {/if}
+        <div class="lista-conversas">
+          {#each ordenadas as c (c.id)}
+            <button
+              type="button"
+              class="conversa-item"
+              class:nao-lida={c.naoLidasGerente > 0}
+              aria-label={`${c.clienteNome || 'Cliente'}${c.naoLidasGerente > 0 ? ', ' + textoNovas(c.naoLidasGerente) : ''}`}
+              onclick={() => app.abrirConversa(c.id)}
+            >
+              <span class="linha">
+                <strong>{c.clienteNome || 'Cliente'}</strong>
+                <time>{rotuloQuando(c.ultimaHora)}</time>
+              </span>
+              <small class="condo">{app.condominioNome || 'Condomínio'}</small>
+              <small class="previa">{resumir(c.ultimaMensagem) || 'Sem mensagens'}</small>
+              {#if c.naoLidasGerente > 0}<b class="novas">{contadorNovas(c.naoLidasGerente)}</b>{/if}
+            </button>
+          {/each}
+        </div>
       {/if}
-      <div class="lista-conversas">
-        {#each app.conversas as c (c.id)}
-          <button type="button" class="conversa-item" onclick={() => app.abrirConversa(c.id)}>
-            <strong>{c.clienteNome || 'Cliente'}</strong>
-            <small>{c.ultimaMensagem}</small>
-            {#if c.naoLidasGerente > 0}<b class="novas">{c.naoLidasGerente}</b>{/if}
-          </button>
-        {/each}
-      </div>
     {:else}
+      {#if app.mensagensEstado === 'carregando'}
+        <p class="demo" role="status">Carregando mensagens...</p>
+      {:else if app.mensagensEstado === 'erro'}
+        <p class="demo" role="alert">Não foi possível carregar as mensagens ({app.mensagensErro}).</p>
+        <button type="button" class="btn-secundario" onclick={() => app.reabrirConversa()}>Tentar de novo</button>
+      {:else if app.mensagens.length === 0}
+        <p class="demo">Nenhuma mensagem nesta conversa.</p>
+      {/if}
       <div class="mensagens">
         {#each app.mensagens as m (m.id)}
           <div class={`bolha ${m.de}`}>
             <p>{m.texto}</p>
-            <small>{m.hora}</small>
+            <small>{rotuloMensagem(m.criadoEm, m.hora)}</small>
           </div>
         {/each}
         <div bind:this={fim}></div>
@@ -117,6 +146,35 @@
     border: 1px solid var(--card-borda);
   }
 
+  .linha {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .linha time {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    flex: none;
+  }
+
+  .conversa-item.nao-lida {
+    border-color: var(--gold-500);
+    background: color-mix(in srgb, var(--gold-500) 12%, var(--card));
+  }
+
+  .conversa-item.nao-lida strong,
+  .conversa-item.nao-lida .previa {
+    font-weight: 700;
+    opacity: 1;
+  }
+
+  .aviso-novas {
+    margin: 0 0 8px;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
   .conversa-item small {
     opacity: 0.7;
     overflow: hidden;
@@ -127,8 +185,7 @@
   .novas {
     position: absolute;
     right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
+    bottom: 12px;
     min-width: 22px;
     padding: 2px 6px;
     border-radius: 11px;

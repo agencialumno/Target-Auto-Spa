@@ -98,6 +98,14 @@ export function atividadeDoPagamento(tipo, d, ag, valor) {
   }
 }
 
+// Vagas de /ocupacao de um agendamento: reservas novas trazem todas em vagasIds (uma por fatia de 30 min);
+// reservas antigas só têm vagaId. Só ids bem formados entram (máx. 40).
+export function vagasDoAgendamento(ag) {
+  const lista = Array.isArray(ag?.vagasIds) ? ag.vagasIds : [];
+  const ids = [...lista, ag?.vagaId].filter((v) => typeof v === 'string' && VAGA_RE.test(v));
+  return [...new Set(ids)].slice(0, 40);
+}
+
 async function acharPorCheckout(db, checkoutId) {
   if (!checkoutId) return null;
   const r = await db.collection('agendamentos').where('pagamento.checkoutId', '==', checkoutId).limit(1).get();
@@ -164,13 +172,23 @@ export async function processarWebhook(deps, headers, corpo) {
     const d = decidir(tipo, ag, { checkoutId, valor, agora: quando });
     const registro = { evento: tipo, recebidoEm: quando, resultado: d.resultado, agendamentoId, checkoutId };
 
+    // Leituras antes de qualquer escrita: só libera a vaga que ainda é DESTE agendamento
+    // (uma vaga já reaproveitada por outra reserva não pode ser apagada)
+    const vagasParaLiberar = [];
+    if (d.cancelar) {
+      for (const id of vagasDoAgendamento(ag)) {
+        const vref = db.doc(`ocupacao/${id}`);
+        const v = await tx.get(vref);
+        if (v.exists && v.data()?.agendamentoId === agendamentoId) vagasParaLiberar.push(vref);
+      }
+    }
+
     if (d.pagamento) tx.update(agRef, d.pagamento && d.cancelar
       ? { pagamento: d.pagamento, status: 'cancelado', atualizadoEm: quando }
       : { pagamento: d.pagamento });
 
-    if (d.cancelar && typeof ag.vagaId === 'string' && VAGA_RE.test(ag.vagaId)) {
-      tx.delete(db.doc(`ocupacao/${ag.vagaId}`));
-    }
+    // Mesma transação da mudança de status: ou tudo é gravado, ou nada
+    for (const vref of vagasParaLiberar) tx.delete(vref);
 
     // Só o id do cliente do Asaas, e só pelo servidor (coleção negada a qualquer cliente das regras)
     if (d.registrarCliente) {
