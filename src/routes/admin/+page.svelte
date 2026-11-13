@@ -3,7 +3,7 @@
   import { authStore } from '$lib/auth.svelte';
   import { app } from '$lib/app.svelte';
   import { servicos } from '$lib/catalogo.svelte';
-  import { brlCentavos } from '$lib/agendamentos';
+  import PainelDashboard from '$lib/components/PainelDashboard.svelte';
   import { contarCondominios, contarUsuarios, plural } from '$lib/admin-resumo';
 
   let usuarios = $state<number | null>(null);
@@ -13,10 +13,6 @@
     contarUsuarios().then((n) => (usuarios = n)).catch(() => {});
     contarCondominios().then((n) => (condominios = n)).catch(() => {});
   });
-
-  const notaMedia = $derived(
-    app.notaMedia === null ? '-' : app.notaMedia.toFixed(1).replace('.', ',')
-  );
 
   const cartoes = $derived([
     {
@@ -28,7 +24,7 @@
     {
       href: '/admin/precos',
       icone: 'sparkle',
-      titulo: 'Preços',
+      titulo: 'Serviços e preços',
       contexto: plural(servicos.length, 'serviço', 'serviços')
     },
     {
@@ -42,12 +38,6 @@
       icone: 'user',
       titulo: 'Usuários',
       contexto: usuarios === null ? 'Carregando...' : plural(usuarios, 'usuário', 'usuários')
-    },
-    {
-      href: '/admin/dashboard',
-      icone: 'star',
-      titulo: 'Dashboard',
-      contexto: 'KPIs e financeiro'
     },
     {
       href: '/admin/custos',
@@ -84,21 +74,9 @@
   <section class="folha corpo">
     <div class="folha-alca"></div>
 
-    <div class="resumo card" aria-label="Resumo">
-      <div>
-        <small>Receita</small>
-        <strong>{brlCentavos(app.receita)}</strong>
-      </div>
-      <div>
-        <small>Agendamentos</small>
-        <strong>{app.agendamentos.length}</strong>
-      </div>
-      <div>
-        <small>Nota média</small>
-        <strong>{notaMedia}</strong>
-      </div>
-    </div>
-    <p class="nota">Receita considera só atendimentos finalizados.</p>
+    <PainelDashboard />
+
+    <h2 class="gestao">Gestão</h2>
 
     <nav class="cartoes" aria-label="Seções do painel">
       {#each cartoes as c (c.href)}
@@ -120,41 +98,16 @@
     padding-bottom: calc(32px + var(--safe-bottom));
   }
 
-  .resumo {
-    display: grid;
-    grid-template-columns: 1.4fr 1fr 1fr;
-    gap: 8px;
-    padding: 14px 16px;
-  }
-
-  .resumo div {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .resumo small {
-    color: var(--texto-suave);
-    font-size: 0.72rem;
-  }
-
-  .resumo strong {
-    font-size: 1.05rem;
-    overflow-wrap: anywhere;
-  }
-
-  .nota {
-    margin: 8px 2px 0;
-    font-size: 0.72rem;
-    color: var(--texto-suave);
+  .gestao {
+    margin: 28px 0 0;
+    font-size: 1rem;
   }
 
   .cartoes {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-top: 20px;
+    margin-top: 10px;
   }
 
   .secao {

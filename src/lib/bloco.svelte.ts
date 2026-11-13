@@ -39,6 +39,7 @@ export class Bloco<T> {
   estado = $state<EstadoBloco>('carregando');
   dados = $state<T | null>(null);
   erro = $state('');
+  atualizadoEm = $state<Date | null>(null);
   private fn: () => Promise<T>;
   private vazio: (d: T) => boolean;
   private ms: number;
@@ -59,6 +60,7 @@ export class Bloco<T> {
       const d = await comTempo(Promise.resolve().then(this.fn), this.ms);
       if (minha !== this.geracao) return;
       this.dados = d;
+      this.atualizadoEm = new Date();
       this.estado = this.vazio(d) ? 'vazio' : 'pronto';
     } catch (e) {
       if (minha !== this.geracao) return;

@@ -78,3 +78,50 @@ describe('detalharPeriodo', () => {
     expect(detalharPeriodo(Array.from({ length: 500 }, () => ag({}))).truncado).toBe(true);
   });
 });
+
+import { filtrarAgendamentos, lerFiltro, periodoPreset, variacaoPct } from './dashboard';
+
+describe('períodos rápidos e filtros', () => {
+  const ref = new Date(2030, 4, 15, 10, 0);
+  it('hoje, 7 dias e mês, com o período anterior de mesmo tamanho', () => {
+    const h = periodoPreset('hoje', ref);
+    expect(h.inicio).toEqual(new Date(2030, 4, 15));
+    expect(h.fim).toEqual(new Date(2030, 4, 16));
+    expect(h.anteriorInicio).toEqual(new Date(2030, 4, 14));
+    const s = periodoPreset('7d', ref);
+    expect(s.inicio).toEqual(new Date(2030, 4, 9));
+    expect(s.anteriorInicio).toEqual(new Date(2030, 4, 2));
+    expect(s.anteriorFim).toEqual(s.inicio);
+    const m = periodoPreset('mes', ref);
+    expect([m.de, m.ate]).toEqual(['2030-05', '2030-05']);
+    expect(m.anteriorInicio).toEqual(new Date(2030, 3, 1));
+  });
+  it('7 dias que cruzam o mês', () => {
+    const s = periodoPreset('7d', new Date(2030, 4, 3));
+    expect([s.de, s.ate]).toEqual(['2030-04', '2030-05']);
+  });
+  it('variação: sem base anterior não há variação', () => {
+    expect(variacaoPct(150, 100)).toBe(50);
+    expect(variacaoPct(50, 100)).toBe(-50);
+    expect(variacaoPct(5, 0)).toBeNull();
+  });
+  it('lerFiltro ignora valores desconhecidos', () => {
+    expect(lerFiltro(new URLSearchParams('status=agendado&pagamento=pago&periodo=hoje'))).toEqual({ status: 'agendado', pagamento: 'pago', periodo: 'hoje' });
+    expect(lerFiltro(new URLSearchParams('status=xx&pagamento=yy&periodo=zz'))).toEqual({});
+  });
+  it('filtrarAgendamentos', () => {
+    const a = (id: string, status: string, inicio: Date, pg?: string) => ({ id, status, inicio, pagamento: pg ? { status: pg } : undefined }) as any;
+    const ags = [
+      a('1', 'agendado', new Date(2030, 4, 15, 9), 'pendente'),
+      a('2', 'finalizado', new Date(2030, 4, 15, 11), 'pago'),
+      a('3', 'agendado', new Date(2030, 4, 1, 9)),
+      a('4', 'cancelado', new Date(2030, 4, 15, 8), 'pendente')
+    ];
+    const ids = (f: any) => filtrarAgendamentos(ags, f, ref).map((x) => x.id);
+    expect(ids({ pagamento: 'pendente' })).toEqual(['1']);
+    expect(ids({ pagamento: 'pago' })).toEqual(['2']);
+    expect(ids({ status: 'agendado', periodo: 'hoje' })).toEqual(['1']);
+    expect(ids({ periodo: 'mes' })).toEqual(['1', '2', '3', '4']);
+    expect(ids({})).toHaveLength(4);
+  });
+});

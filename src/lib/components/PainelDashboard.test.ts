@@ -23,7 +23,7 @@ vi.mock('$lib/dashboard-dados', () => ({
   agendamentosDoPeriodo: async () => [],
   ultimasMovimentacoes: () => m.mov()
 }));
-import Pagina from './+page.svelte';
+import Pagina from './PainelDashboard.svelte';
 
 const falha = (code: string) => Promise.reject(Object.assign(new Error(code), { code }));
 const bloco = (nome: string) => screen.getByRole('region', { name: new RegExp(nome) });
@@ -43,8 +43,8 @@ describe('dashboard: carga', () => {
     await waitFor(() => expect(bloco('Usuários')).toHaveTextContent('Clientes'));
     await new Promise((r) => setTimeout(r, 200));
     expect(m.usuarios).toHaveBeenCalledTimes(1);
-    expect(m.status).toHaveBeenCalledTimes(1);
-    expect(m.fatur).toHaveBeenCalledTimes(1);
+    expect(m.status).toHaveBeenCalledTimes(2); // atual + período anterior
+    expect(m.fatur).toHaveBeenCalledTimes(2);
     expect(m.custos).toHaveBeenCalledTimes(1);
     expect(m.mov).toHaveBeenCalledTimes(1);
   });
@@ -52,7 +52,7 @@ describe('dashboard: carga', () => {
   it('estados: pronto, vazio (movimentações) e nenhum "Carregando" sobra', async () => {
     render(Pagina);
     await waitFor(() => expect(bloco('Últimas movimentações')).toHaveTextContent('Nenhuma atividade registrada ainda.'));
-    expect(bloco('Agendamentos no período')).toHaveTextContent('Finalizado');
+    expect(bloco('Agendamentos neste mês')).toHaveTextContent('Finalizado');
     expect(screen.queryByText('Carregando...')).toBeNull();
   });
 
@@ -61,7 +61,7 @@ describe('dashboard: carga', () => {
     render(Pagina);
     await waitFor(() => expect(bloco('Financeiro')).toHaveTextContent('Faturamento'));
     expect(bloco('Usuários')).toHaveTextContent('Carregando...');
-    expect(bloco('Agendamentos no período')).toHaveTextContent('Finalizado');
+    expect(bloco('Agendamentos neste mês')).toHaveTextContent('Finalizado');
   });
 
   it('erro mostra o código do Firestore, os outros blocos seguem e "Tentar de novo" recupera', async () => {
@@ -88,10 +88,42 @@ describe('dashboard: carga', () => {
       m.status.mockReturnValue(new Promise(() => {}));
       render(Pagina);
       await vi.advanceTimersByTimeAsync(15_100);
-      expect(bloco('Agendamentos no período')).toHaveTextContent('timeout');
-      expect(within(bloco('Agendamentos no período')).getByRole('button', { name: 'Tentar de novo' })).toBeInTheDocument();
+      expect(bloco('Agendamentos neste mês')).toHaveTextContent('timeout');
+      expect(within(bloco('Agendamentos neste mês')).getByRole('button', { name: 'Tentar de novo' })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('seletor de período: Hoje/7 dias/Mês; fora do mês some custos e o título muda', async () => {
+    render(Pagina);
+    await waitFor(() => expect(bloco('Financeiro')).toHaveTextContent('Rentabilidade'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Hoje' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: /Agendamentos hoje/ })).toBeInTheDocument());
+    await waitFor(() => expect(bloco('Financeiro')).toHaveTextContent('escolha "Mês"'));
+    expect(bloco('Financeiro')).not.toHaveTextContent('Rentabilidade');
+    expect(screen.getByRole('button', { name: 'Hoje' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('mostra variação contra o período anterior e "Atualizado às"', async () => {
+    m.fatur.mockResolvedValueOnce({ centavos: 15000, pagos: 3 }).mockResolvedValueOnce({ centavos: 10000, pagos: 2 });
+    render(Pagina);
+    await waitFor(() => expect(bloco('Financeiro')).toHaveTextContent('▲ 50%'));
+    expect(screen.getByText(/Atualizado às [0-9]{2}:[0-9]{2}/)).toBeInTheDocument();
+  });
+
+  it('cartões levam ao detalhe filtrado', async () => {
+    render(Pagina);
+    await waitFor(() => expect(bloco('Agendamentos neste mês')).toHaveTextContent('Finalizado'));
+    const hrefs = Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/admin/agendamentos?pagamento=pendente');
+    expect(hrefs).toContain('/admin/agendamentos?status=agendado&periodo=mes');
+    expect(hrefs).toContain('/admin/agendamentos?pagamento=pago&periodo=mes');
+  });
+
+  it('carregando mostra esqueleto (sem texto "atualizando")', () => {
+    m.usuarios.mockReturnValue(new Promise(() => {}));
+    const { container } = render(Pagina);
+    expect(container.querySelector('.esq')).not.toBeNull();
   });
 });

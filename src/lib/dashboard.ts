@@ -81,3 +81,67 @@ export function detalharPeriodo(ags: Agendamento[]): Detalhe {
 }
 
 export const STATUS_ORDEM: Status[] = ['agendado', 'em_andamento', 'finalizado', 'cancelado'];
+
+// ---- Página inicial do admin: períodos rápidos, variação e filtros dos detalhes ----
+export type Preset = 'hoje' | '7d' | 'mes';
+export const PRESETS: { id: Preset; rotulo: string }[] = [
+  { id: 'hoje', rotulo: 'Hoje' },
+  { id: '7d', rotulo: '7 dias' },
+  { id: 'mes', rotulo: 'Mês' }
+];
+export const rotuloPreset: Record<Preset, string> = { hoje: 'hoje', '7d': 'nos últimos 7 dias', mes: 'neste mês' };
+
+const mesDe = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+// Período atual [inicio, fim) e o período imediatamente anterior, de mesmo tamanho (para a variação)
+export function periodoPreset(p: Preset, agora = new Date()) {
+  const a = agora.getFullYear();
+  const m = agora.getMonth();
+  const d = agora.getDate();
+  let inicio: Date, fim: Date, anteriorInicio: Date;
+  if (p === 'hoje') {
+    inicio = new Date(a, m, d);
+    fim = new Date(a, m, d + 1);
+    anteriorInicio = new Date(a, m, d - 1);
+  } else if (p === '7d') {
+    inicio = new Date(a, m, d - 6);
+    fim = new Date(a, m, d + 1);
+    anteriorInicio = new Date(a, m, d - 13);
+  } else {
+    inicio = new Date(a, m, 1);
+    fim = new Date(a, m + 1, 1);
+    anteriorInicio = new Date(a, m - 1, 1);
+  }
+  return { inicio, fim, anteriorInicio, anteriorFim: inicio, de: mesDe(inicio), ate: mesDe(new Date(fim.getTime() - 1)) };
+}
+
+// Variação percentual inteira; sem base de comparação (anterior = 0) não há variação
+export const variacaoPct = (atual: number, anterior: number): number | null =>
+  anterior > 0 ? Math.round(((atual - anterior) / anterior) * 100) : null;
+
+export type FiltroAgendamentos = { status?: Status; pagamento?: 'pendente' | 'pago'; periodo?: Preset };
+
+// Lê o filtro da URL; valor desconhecido é ignorado (nunca quebra a lista)
+export function lerFiltro(q: URLSearchParams): FiltroAgendamentos {
+  const f: FiltroAgendamentos = {};
+  const s = q.get('status');
+  if (s && (STATUS_ORDEM as string[]).includes(s)) f.status = s as Status;
+  const pg = q.get('pagamento');
+  if (pg === 'pendente' || pg === 'pago') f.pagamento = pg;
+  const pe = q.get('periodo');
+  if (pe === 'hoje' || pe === '7d' || pe === 'mes') f.periodo = pe;
+  return f;
+}
+
+export function filtrarAgendamentos(ags: Agendamento[], f: FiltroAgendamentos, agora = new Date()): Agendamento[] {
+  const per = f.periodo ? periodoPreset(f.periodo, agora) : null;
+  return ags.filter((a) => {
+    if (f.status && a.status !== f.status) return false;
+    if (f.pagamento === 'pendente' && !(a.status === 'agendado' && a.pagamento?.status === 'pendente')) return false;
+    if (f.pagamento === 'pago' && a.pagamento?.status !== 'pago') return false;
+    if (per && !(a.inicio >= per.inicio && a.inicio < per.fim)) return false;
+    return true;
+  });
+}
+
+export const temFiltro = (f: FiltroAgendamentos) => Boolean(f.status || f.pagamento || f.periodo);

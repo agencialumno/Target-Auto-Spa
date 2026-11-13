@@ -50,6 +50,14 @@ vi.mock('$lib/admin-resumo', () => ({
   plural: (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`
 }));
 // Seções que reaproveitam componentes existentes: só as dependências deles são trocadas
+vi.mock('$lib/custos-admin', () => ({ listarCustos: async () => [] }));
+vi.mock('$lib/dashboard-dados', () => ({
+  contarUsuarios: async () => ({ cliente: 1, gerente: 0, funcionario: 0, admin: 1 }),
+  contarPorStatus: async () => ({ agendado: 1, em_andamento: 0, finalizado: 1, cancelado: 0 }),
+  faturamento: async () => ({ centavos: 0, pagos: 0 }),
+  agendamentosDoPeriodo: async () => [],
+  ultimasMovimentacoes: async () => []
+}));
 vi.mock('$lib/api', () => ({ chamarApi: vi.fn() }));
 vi.mock('firebase/firestore', () => ({
   collection: (_db: unknown, nome: string) => ({ nome }),
@@ -74,11 +82,14 @@ import Precos from './precos/+page.svelte';
 import Avaliacoes from './avaliacoes/+page.svelte';
 import Usuarios from './usuarios/+page.svelte';
 import Condominios from './condominios/+page.svelte';
+import DashboardAntigo from './dashboard/+page.svelte';
+import { page } from '$app/state';
 
 const ag = (id: string, extra = {}) => ({
   id,
   itens: [{ servicoId: 's1', nome: 'Banho', precoCentavos: 6500 }],
   data: '2030-01-01',
+  inicio: new Date(2030, 0, 1, 9, 0),
   hora: '09:00',
   veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
   total: 6500,
@@ -100,16 +111,7 @@ beforeEach(() => {
 });
 
 describe('tela inicial do admin', () => {
-  it('mostra o resumo compacto: receita, agendamentos e nota média', () => {
-    render(Home);
-    const resumo = screen.getByLabelText('Resumo');
-    expect(resumo).toHaveTextContent('Receita');
-    expect(resumo).toHaveTextContent('R$');
-    expect(resumo).toHaveTextContent('Agendamentos');
-    expect(resumo).toHaveTextContent('2');
-    expect(resumo).toHaveTextContent('Nota média');
-    expect(resumo).toHaveTextContent('4,5');
-  });
+it('o dashboard é a página inicial: período, cartões e blocos, já abertos', async () => {    render(Home);    expect(screen.getByRole('group', { name: 'Período' })).toBeInTheDocument();    expect(screen.getByRole('region', { name: 'Agora' })).toBeInTheDocument();    await waitFor(() => expect(screen.getByRole('region', { name: 'Financeiro' })).toHaveTextContent('Faturamento'));    expect(screen.getByRole('region', { name: 'Usuários' })).toBeInTheDocument();  });
 
   it('não tem mais abas horizontais', () => {
     render(Home);
@@ -119,7 +121,7 @@ describe('tela inicial do admin', () => {
 
   it.each([
     ['Agendamentos', '/admin/agendamentos', '2 agendamentos'],
-    ['Preços', '/admin/precos', '11 serviços'],
+    ['Serviços e preços', '/admin/precos', '11 serviços'],
     ['Avaliações', '/admin/avaliacoes', '1 avaliação'],
     ['Usuários', '/admin/usuarios', '5 usuários'],
     ['Condomínios', '/admin/condominios', '2 condomínios']
@@ -132,15 +134,21 @@ describe('tela inicial do admin', () => {
     await waitFor(() => expect(cartao).toHaveTextContent(contexto));
   });
 
-  it('são exatamente 8 cartões (inclui Dashboard, Custos e Atividades)', () => {
+  it('são exatamente 7 cartões de gestão (sem Dashboard, que é a própria página)', () => {
     render(Home);
-    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(8);
+    expect(screen.getByRole('navigation', { name: 'Seções do painel' }).querySelectorAll('a')).toHaveLength(7);
   });
 
   it('não tem entrada para mensagens (o cliente fala com o gerente, não com o admin)', () => {
     const { container } = render(Home);
     expect(container.querySelector('a[href="/gerente/chat"]')).toBeNull();
     expect(screen.queryByRole('link', { name: /conversas|mensagens/i })).toBeNull();
+  });
+
+  it('não tem card Dashboard', () => {
+    render(Home);
+    const nav = screen.getByRole('navigation', { name: 'Seções do painel' });
+    expect(nav.querySelector('a[href="/admin/dashboard"]')).toBeNull();
   });
 
   it('tem o botão de sair', () => {
@@ -188,6 +196,27 @@ describe('seções (rotas próprias com voltar para /admin)', () => {
     expect(cartao.querySelector('input')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Novo condomínio' })).toBeInTheDocument();
     expect(cartao.contains(screen.getByRole('button', { name: 'Novo condomínio' }))).toBe(false);
+  });
+});
+
+describe('rota antiga /admin/dashboard', () => {
+  it('redireciona para /admin', async () => {
+    render(DashboardAntigo);
+    await waitFor(() => expect(m.goto).toHaveBeenCalledWith('/admin', { replaceState: true }));
+  });
+});
+
+describe('lista de agendamentos filtrada pelos cartões', () => {
+  it('?status= filtra e mostra o aviso com opção de ver todos', () => {
+    (page as any).url = new URL('http://localhost/admin/agendamentos?status=finalizado');
+    try {
+      render(Agendamentos);
+      const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/admin/agendamentos/'));
+      expect(links.map((a) => a.getAttribute('href'))).toEqual(['/admin/agendamentos/a2']);
+      expect(screen.getByRole('link', { name: 'Ver todos' })).toBeInTheDocument();
+    } finally {
+      (page as any).url = new URL('http://localhost/');
+    }
   });
 });
 

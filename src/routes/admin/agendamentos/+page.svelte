@@ -4,14 +4,23 @@
   import { app, rotuloStatus } from '$lib/app.svelte';
   import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
+  import { page } from '$app/state';
+  import { filtrarAgendamentos, lerFiltro, temFiltro } from '$lib/dashboard';
+
+  // Filtros vindos dos cartões do dashboard (?status=, ?pagamento=, ?periodo=)
+  const filtro = $derived(lerFiltro(page.url.searchParams));
+  const lista = $derived(filtrarAgendamentos(app.agendamentos, filtro));
 </script>
 
 <TelaAdmin titulo="Agendamentos" sub="Todos os condomínios">
-  {#if app.agendamentos.length === 0}
-    <p class="vazio">Nenhum agendamento ainda.</p>
+  {#if temFiltro(filtro)}
+    <p class="filtro" role="status">Lista filtrada ({lista.length}) · <a href="/admin/agendamentos">Ver todos</a></p>
+  {/if}
+  {#if lista.length === 0}
+    <p class="vazio">{temFiltro(filtro) ? 'Nenhum agendamento com este filtro.' : 'Nenhum agendamento ainda.'}</p>
   {/if}
   <div class="lista">
-    {#each app.agendamentos as a (a.id)}
+    {#each lista as a (a.id)}
       <a class="item card" href={`/admin/agendamentos/${a.id}`}>
         <span class="textos">
           <strong>{nomesItens(a.itens)}</strong>
