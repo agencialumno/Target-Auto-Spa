@@ -105,6 +105,11 @@ class App {
   mensagens = $state<Mensagem[]>([]);
   conversas = $state<Conversa[]>([]);
   conversaAtiva = $state<string | null>(null);
+  // Estados visíveis do chat: carregando, pronto ou erro (com o código do Firestore)
+  conversasEstado = $state<'carregando' | 'pronto' | 'erro'>('carregando');
+  conversasErro = $state('');
+  mensagensEstado = $state<'carregando' | 'pronto' | 'erro'>('carregando');
+  mensagensErro = $state('');
   notificacoes = $state<Notificacao[]>([]);
   funcionarios = $state<Funcionario[]>([]);
   carregado = $state(false);
@@ -224,15 +229,7 @@ class App {
     }
 
     if (sessao.role === 'gerente' && sessao.condominioId) {
-      ouvir(
-        onSnapshot(
-          query(collection(db, 'chats'), where('condominioId', '==', sessao.condominioId), orderBy('ultimaHora', 'desc'), limit(100)),
-          (snap) => {
-            this.conversas = snap.docs.map((d) => this.lerConversa(d.id, d.data()));
-          },
-          () => {}
-        )
-      );
+      this.ouvirConversas(sessao.condominioId);
       ouvir(
         onSnapshot(
           query(collection(db, 'users'), where('role', '==', 'funcionario')),
@@ -247,6 +244,28 @@ class App {
     }
   }
 
+  // Lista de conversas do gerente. Índice: chats (condominioId, ultimaHora desc) — já existe.
+  private paradaConversas: Unsubscribe | null = null;
+  ouvirConversas(condominioId?: string) {
+    const cond = condominioId ?? this.sessao?.condominioId;
+    if (!cond) return;
+    this.paradaConversas?.();
+    this.conversasEstado = 'carregando';
+    this.conversasErro = '';
+    this.paradaConversas = onSnapshot(
+      query(collection(db, 'chats'), where('condominioId', '==', cond), orderBy('ultimaHora', 'desc'), limit(100)),
+      (snap) => {
+        this.conversas = snap.docs.map((d) => this.lerConversa(d.id, d.data()));
+        this.conversasEstado = 'pronto';
+      },
+      (e) => {
+        this.conversasErro = (e as { code?: string })?.code ?? 'erro';
+        this.conversasEstado = 'erro';
+      }
+    );
+    this.paradas.push(this.paradaConversas);
+  }
+
   parar() {
     for (const u of this.paradas) u();
     this.paradas = [];
@@ -257,6 +276,11 @@ class App {
     this.mensagens = [];
     this.conversas = [];
     this.conversaAtiva = null;
+    this.conversasEstado = 'carregando';
+    this.conversasErro = '';
+    this.mensagensEstado = 'carregando';
+    this.mensagensErro = '';
+    this.paradaConversas = null;
     this.notificacoes = [];
     this.funcionarios = [];
     this.carregado = false;
@@ -612,6 +636,8 @@ class App {
     this.paradaMensagens?.();
     this.conversaAtiva = chatId;
     this.mensagens = [];
+    this.mensagensEstado = 'carregando';
+    this.mensagensErro = '';
     let primeira = true;
     this.paradaMensagens = onSnapshot(
       query(collection(db, 'chats', chatId, 'mensagens'), orderBy('criadoEm', 'asc'), limit(500)),
@@ -636,9 +662,21 @@ class App {
           }
         }
         primeira = false;
+        this.mensagensEstado = 'pronto';
       },
-      () => {}
+      (e) => {
+        this.mensagensErro = (e as { code?: string })?.code ?? 'erro';
+        this.mensagensEstado = 'erro';
+      }
     );
+  }
+
+  // "Tentar de novo" da conversa aberta
+  reabrirConversa() {
+    const id = this.conversaAtiva;
+    if (!id) return;
+    this.conversaAtiva = null;
+    this.abrirConversa(id);
   }
 
   fecharConversa() {

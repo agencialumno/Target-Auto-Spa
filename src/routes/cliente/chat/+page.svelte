@@ -5,6 +5,7 @@
   import { authStore } from '$lib/auth.svelte';
   import { brlCentavos, nomesItens } from '$lib/agendamentos';
   import { dataCurta } from '$lib/formato';
+  import { rotuloMensagem, rotuloQuando } from '$lib/chat';
 
   let texto = $state('');
   let fim = $state<HTMLDivElement>();
@@ -38,10 +39,20 @@
     }
   }
 
+  // Respostas do gerente ainda não lidas ao chegar: ficam destacadas como "Nova" enquanto a tela estiver aberta,
+  // mesmo depois de marcadas como lidas no servidor
+  let novas = $state<Set<string>>(new Set());
+  const novasDoGerente = $derived(app.mensagens.filter((m) => novas.has(m.id)));
+  const ultimaNova = $derived(novasDoGerente[novasDoGerente.length - 1]);
+
   // Marca como lidas ao abrir e sempre que chegar mensagem nova com a conversa aberta
   $effect(() => {
     app.mensagens.length;
-    untrack(() => app.lerMensagens('cliente'));
+    untrack(() => {
+      const ids = app.mensagens.filter((m) => m.de === 'gerente' && m.lida === false && !novas.has(m.id)).map((m) => m.id);
+      if (ids.length) novas = new Set([...novas, ...ids]);
+      app.lerMensagens('cliente');
+    });
     tick().then(() => fim?.scrollIntoView({ block: 'end' }));
   });
 </script>
@@ -71,17 +82,33 @@
       </div>
     {/if}
 
+    {#if ultimaNova}
+      <p class="aviso-resposta" role="status">
+        O gerente respondeu {rotuloQuando(ultimaNova.criadoEm) ? 'às ' + (ultimaNova.hora || rotuloQuando(ultimaNova.criadoEm)) : ''}
+        {novasDoGerente.length > 1 ? `(${novasDoGerente.length} mensagens novas)` : ''}
+      </p>
+    {/if}
+
     {#if semCondominio}
       <p class="demo" role="alert">Seu perfil não está ligado a um condomínio, então não há gerente para responder.</p>
+    {:else if app.mensagensEstado === 'carregando'}
+      <p class="demo" role="status">Carregando mensagens...</p>
+    {:else if app.mensagensEstado === 'erro'}
+      <p class="demo" role="alert">Não foi possível carregar as mensagens ({app.mensagensErro}).</p>
+      <button type="button" class="btn-secundario" onclick={() => app.reabrirConversa()}>Tentar de novo</button>
     {:else if app.mensagens.length === 0}
       <p class="demo">Nenhuma mensagem ainda. Escreva abaixo para falar com o gerente do seu condomínio.</p>
     {/if}
 
     <div class="mensagens">
       {#each app.mensagens as m (m.id)}
-        <div class={`bolha ${m.de}`}>
+        <div class={`bolha ${m.de}`} class:nova={novas.has(m.id)}>
           <p>{m.texto}</p>
-          <small>{m.hora}</small>
+          <small>
+            {rotuloMensagem(m.criadoEm, m.hora)}
+            {#if novas.has(m.id)}· <b>Nova</b>{/if}
+            {#if m.de === 'cliente' && m.lida}· Lida{/if}
+          </small>
         </div>
       {/each}
       <div bind:this={fim}></div>
@@ -102,6 +129,20 @@
 </div>
 
 <style>
+  .aviso-resposta {
+    margin: 0 0 10px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--gold-500) 16%, var(--card));
+    border: 1px solid var(--gold-500);
+  }
+
+  .bolha.nova {
+    outline: 2px solid var(--gold-500);
+  }
+
   .conversa {
     padding-bottom: calc(96px + var(--safe-bottom));
   }

@@ -309,3 +309,63 @@ describe('pagamento (Asaas)', () => {
     await expect(app.prepararPagamento('ag1')).resolves.toBeUndefined();
   });
 });
+
+describe('chat do gerente: estados e leitura', () => {
+  const gerente = { uid: 'g1', nome: 'Gui', role: 'gerente', condominioId: 'c1' };
+  type Ouvinte = [{ caminho?: string }, (s: any) => void, (e: unknown) => void];
+  const daLista = () => (m.onSnapshot.mock.calls as unknown as Ouvinte[]).filter((c) => c[0]?.caminho === 'chats').at(-1)!;
+
+  it('carregando -> pronto com as conversas; erro mostra o código; tentar de novo religa a escuta', () => {
+    app.parar();
+    m.onSnapshot.mockClear();
+    app.iniciar(gerente);
+    expect(app.conversasEstado).toBe('carregando');
+    daLista()[1]({ docs: [{ id: 'u1', data: () => ({ clienteNome: 'Ana', condominioId: 'c1', ultimaMensagem: 'oi', naoLidasGerente: 2 }) }] });
+    expect(app.conversasEstado).toBe('pronto');
+    expect(app.conversas).toHaveLength(1);
+    expect(app.msgNaoLidasGerente).toBe(2);
+
+    daLista()[2]({ code: 'permission-denied' });
+    expect(app.conversasEstado).toBe('erro');
+    expect(app.conversasErro).toBe('permission-denied');
+
+    const antes = m.onSnapshot.mock.calls.length;
+    app.ouvirConversas();
+    expect(m.onSnapshot.mock.calls.length).toBe(antes + 1);
+    expect(app.conversasEstado).toBe('carregando');
+  });
+
+  it('mensagens: erro com código e reabrirConversa volta a carregar', () => {
+    app.parar();
+    m.onSnapshot.mockClear();
+    app.iniciar(gerente);
+    app.abrirConversa('u1');
+    const msgs = (m.onSnapshot.mock.calls as unknown as Ouvinte[]).at(-1)!;
+    msgs[2]({ code: 'unavailable' });
+    expect(app.mensagensEstado).toBe('erro');
+    expect(app.mensagensErro).toBe('unavailable');
+    app.reabrirConversa();
+    expect(app.conversaAtiva).toBe('u1');
+    expect(app.mensagensEstado).toBe('carregando');
+  });
+
+  it('abrir a conversa marca as do cliente como lidas e zera só o contador do gerente (compatível com as regras)', async () => {
+    app.parar();
+    app.iniciar(gerente);
+    app.abrirConversa('u1');
+    const msgs = (m.onSnapshot.mock.calls as unknown as Ouvinte[]).at(-1)!;
+    msgs[1]({
+      docs: [
+        { id: 'm1', data: () => ({ de: 'cliente', texto: 'oi', hora: '09:00', lida: false, criadoEm: null }) },
+        { id: 'm2', data: () => ({ de: 'gerente', texto: 'olá', hora: '09:01', lida: false, criadoEm: null }) }
+      ],
+      docChanges: () => []
+    });
+    m.lote.update.mockClear();
+    await app.lerMensagens('gerente');
+    const alvos = m.lote.update.mock.calls.map((c: any[]) => [c[0].caminho, c[1]]);
+    expect(alvos).toContainEqual(['chats/u1/mensagens/m1', { lida: true }]);
+    expect(alvos).toContainEqual(['chats/u1', { naoLidasGerente: 0 }]);
+    expect(alvos.some(([c]) => c === 'chats/u1/mensagens/m2')).toBe(false);
+  });
+});
