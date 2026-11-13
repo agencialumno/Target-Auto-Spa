@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TelaWeb from '../TelaWeb.svelte';
   import Tabela from '../Tabela.svelte';
   import type { Coluna } from '$lib/web/tabela';
   import { descreverErro, listarCondominios, listarUsuarios } from '$lib/web/consultas';
@@ -45,17 +46,17 @@
   });
 </script>
 
-<h1>Usuários</h1>
-<div class="filtros">
-  <label>Busca <input type="search" bind:value={busca} placeholder="Nome ou e-mail" /></label>
-  <label>
+<TelaWeb titulo="Usuários">
+<div class="w-filtros">
+  <label class="w-campo">Busca <input type="search" bind:value={busca} placeholder="Nome ou e-mail" /></label>
+  <label class="w-campo">
     Papel
     <select bind:value={papel}>
       <option value="">Todos</option>
       {#each Object.entries(PAPEIS) as [id, nome]}<option value={id}>{nome}</option>{/each}
     </select>
   </label>
-  <label>
+  <label class="w-campo">
     Condomínio
     <select bind:value={condominio}>
       <option value="">Todos</option>
@@ -63,13 +64,6 @@
     </select>
   </label>
 </div>
-{#if aviso}<p class="aviso" role="status">{aviso}</p>{/if}
+{#if aviso}<p class="w-aviso" role="status">{aviso}</p>{/if}
 <Tabela {colunas} linhas={lista} {carregando} {erro} aoTentarDeNovo={carregar} vazio="Nenhum usuário com estes filtros." legenda="Usuários" />
-
-<style>
-  h1 { margin: 0 0 16px; font-size: 1.5rem; }
-  .filtros { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
-  label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: #445; }
-  input, select { min-height: 36px; padding: 0 10px; font: inherit; border: 1px solid #c3c9d3; border-radius: 8px; background: #fff; }
-  .aviso { color: #7a5b00; }
-</style>
+</TelaWeb>

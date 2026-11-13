@@ -34,7 +34,7 @@ const config = {
       assets: WEB ? 'web-admin/dist' : 'build',
       fallback: 'index.html'
     }),
-    ...(WEB ? { files: { routes: 'src/web/routes' }, csp: { mode: 'hash', directives: CSP_WEB } } : {})
+    ...(WEB ? { files: { routes: 'src/web/routes', appTemplate: 'src/web/app.html' }, csp: { mode: 'hash', directives: CSP_WEB } } : {})
   }
 };
 

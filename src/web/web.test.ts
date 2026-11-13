@@ -129,3 +129,19 @@ describe('Mensagens (somente leitura)', () => {
     expect(await screen.findByText('Nenhuma conversa ainda.')).toBeInTheDocument();
   });
 });
+
+import CartaoLogin from './CartaoLogin.svelte';
+
+describe('Tela de login (identidade visual)', () => {
+  it('mostra o logo oficial com texto alternativo e o botão dourado do app', () => {
+    render(CartaoLogin, { aoEntrar: vi.fn() });
+    expect(screen.getByRole('img', { name: 'Grupo Target Auto Spa' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Painel administrativo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Entrar com Google' })).toHaveClass('btn-primario');
+  });
+  it('ocupado: botão desabilitado com "Aguarde..."; erro aparece como alerta', () => {
+    render(CartaoLogin, { aoEntrar: vi.fn(), ocupado: true, erro: 'Falhou' });
+    expect(screen.getByRole('button', { name: 'Aguarde...' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Falhou');
+  });
+});
