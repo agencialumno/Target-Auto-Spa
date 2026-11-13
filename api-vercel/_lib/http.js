@@ -5,7 +5,9 @@ import { ErroHttp } from './usuarios.js';
 
 // Origens do app: iOS (tauri://localhost) e Android/Windows (http(s)://tauri.localhost).
 // Origens de desenvolvimento só valem fora de produção.
-const ORIGENS_APP = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'];
+// Painel web do admin (domínio exato, sem curingas)
+const ORIGEM_ADMIN_WEB = 'https://admin.targetautospa.com.br';
+const ORIGENS_APP = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost', ORIGEM_ADMIN_WEB];
 const ORIGENS_DEV = ['http://localhost:1420', 'http://localhost:5173'];
 
 export function origensPermitidas(env = process.env) {

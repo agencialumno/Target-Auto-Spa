@@ -114,6 +114,15 @@
         { "fieldPath": "funcionarioId", "order": "ASCENDING" },
         { "fieldPath": "inicio", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "funcionarioId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "inicio", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

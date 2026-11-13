@@ -1,6 +1,8 @@
 <script lang="ts">
-  import Layout from '../../../routes/admin/+layout.svelte';
+  import Entrada from '../../Entrada.svelte';
   let { children } = $props();
 </script>
 
-<Layout {children} />
+<Entrada>
+  {@render children()}
+</Entrada>

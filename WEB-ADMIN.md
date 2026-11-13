@@ -15,16 +15,16 @@ Nada foi publicado: sem deploy de API, regras ou índices.
 **Recomendação: (a).** Os dois builds compartilham `src/lib`; o que difere é só quais rotas entram e algumas trocas de módulo.
 
 **Como funciona (já criado):**
-- `npm run build:web` (`scripts/build-web.mjs`) roda o Vite com `BUILD_WEB_ADMIN=1`. Sem a variável, `svelte.config.js` e `vite.config.js` são os de sempre (`build/`, rotas de `src/routes`).
-- Com a variável: `kit.files.routes = src/web/routes` (só as rotas web), saída em `build-web/`, CSP por hash (`kit.csp`) e alias de `@tauri-apps/api/core` para `src/web/tauri-stub.ts`.
-- **Exclusão do que é só do celular:** as rotas `cliente`, `gerente`, `funcionario` e `entrar-condominio` não existem em `src/web/routes`, então não entram no bundle (conferido: nenhuma referência no `build-web`). O plugin do Tauri sai pelo alias (o `invoke` vira um stub que lança erro). Login nativo (Apple/Google nativo), câmera e checklist de fotos só são importados por rotas de celular e por métodos de `auth.svelte.ts` que o web não chama.
-- **`/admin` como raiz:** a raiz `/` do web é a tela de login; depois do login vai para `/admin`. Cada tela do admin entra no web por um arquivo de uma linha em `src/web/routes/admin/...` que importa a página existente de `src/routes/admin/...` (sem copiar código). Se quiser a URL sem o prefixo (`admin.targetautospa.com.br/usuarios`), é um `reroute` do SvelteKit que tira o `/admin`; recomendo manter o prefixo: os links atuais já usam `/admin/...`.
+- `npm run build:web` (`scripts/web-admin/dist.mjs`) roda o Vite com `BUILD_WEB_ADMIN=1`. Sem a variável, `svelte.config.js` e `vite.config.js` são os de sempre (`build/`, rotas de `src/routes`).
+- Com a variável: `kit.files.routes = src/web/routes` (só as rotas web), saída em `web-admin/dist/`, CSP por hash (`kit.csp`) e alias de `@tauri-apps/api/core` para `src/web/tauri-stub.ts`.
+- **Exclusão do que é só do celular:** as rotas `cliente`, `gerente`, `funcionario` e `entrar-condominio` não existem em `src/web/routes`, então não entram no bundle (conferido: nenhuma referência no `web-admin/dist`). O plugin do Tauri sai pelo alias (o `invoke` vira um stub que lança erro). Login nativo (Apple/Google nativo), câmera e checklist de fotos só são importados por rotas de celular e por métodos de `auth.svelte.ts` que o web não chama.
+- **`/admin` como raiz:** a raiz `/` redireciona para `/admin` (no cliente e, na Vercel, por redirecionamento); a tela de login aparece em `/admin` enquanto não há sessão de admin. Cada tela do admin entra no web por um arquivo de uma linha em `src/web/routes/admin/...` que importa a página existente de `src/routes/admin/...` (sem copiar código). Se quiser a URL sem o prefixo (`admin.targetautospa.com.br/usuarios`), é um `reroute` do SvelteKit que tira o `/admin`; recomendo manter o prefixo: os links atuais já usam `/admin/...`.
 - **O build do celular não mudou:** `firebase.ts` e `auth.svelte.ts` ficaram intactos; `svelte.config.js`/`vite.config.js` só mudam com a variável. A verificação final (build do app) está no relatório.
 
 ## 2. Login na web
 
 - **Google:** popup (`signInWithPopup` com `browserPopupRedirectResolver` passado **na chamada**). O `auth` do app continua criado sem resolver (o WebView do Tauri trava com ele), então nada muda para o celular. Redirecionamento é pior (perde estado, problemas com cookies de terceiros); popup é o padrão. Código: `src/lib/web/auth-web.ts`.
-- **E-mail e senha:** faz sentido como reserva (contas de admin já existem assim); reaproveita `authStore.entrar`. Recomendo exigir Google no início e ligar e-mail/senha só se houver necessidade (menos superfície de força bruta).
+- **E-mail e senha:** fora do web (decisão: só Google), o que reduz a superfície de força bruta de senha.
 - **Só admin entra:** na tela de login, depois que o perfil carrega, `decidirAcesso` (`src/lib/web/acesso-admin.ts`) decide. Qualquer outro papel, ou Google sem cadastro (sem perfil), vê "Acesso negado" e é **desconectado** na hora. O web nunca cria perfil (não chama o cadastro).
 - **Onde o papel é verificado (três camadas):**
   1. Cliente: `decidirAcesso` no login e `GuardaPapel papel="admin"` em todo `/admin` (já existe).
@@ -34,14 +34,14 @@ Nada foi publicado: sem deploy de API, regras ou índices.
 
 ## 3. Segurança (ponto principal)
 
-**Cabeçalhos** (já em `vercel.json`; CSP também como `<meta>` por hash no build):
+**Cabeçalhos** (em `web-admin/vercel.json`; CSP também como `<meta>` por hash no build):
 
 | Item | Valor |
 |---|---|
 | CSP | `default-src 'none'`; `script-src 'self' https://apis.google.com` + hash do script de inicialização; `connect-src` Firebase/Google + a API; `frame-src` só `*.firebaseapp.com` e `accounts.google.com` (popup do Firebase Auth); `object-src 'none'`; `base-uri 'self'`; `form-action 'self'`. `style-src` tem `'unsafe-inline'` (o Svelte injeta estilos) |
 | Anti-iframe | `X-Frame-Options: DENY` e `frame-ancestors 'none'` (só vale como cabeçalho, não em `<meta>`) |
 | `Referrer-Policy` | `no-referrer` |
-| HSTS | `max-age=63072000; includeSubDomains; preload` (**cuidado com `preload`/`includeSubDomains`**: afeta todo o domínio `targetautospa.com.br`; só mantenha se todos os subdomínios têm HTTPS) |
+| HSTS | `max-age=31536000` (sem `preload` e sem `includeSubDomains`, para não afetar o resto do domínio) |
 | noindex | `<meta name="robots">` + `X-Robots-Tag: noindex, nofollow, noarchive` |
 | Outros | `X-Content-Type-Options: nosniff`, `Permissions-Policy` sem câmera/microfone/localização, `Cross-Origin-Opener-Policy: same-origin-allow-popups` (o popup do Google precisa disso) |
 
@@ -50,7 +50,7 @@ Nada foi publicado: sem deploy de API, regras ou índices.
 - **Limite de tentativas de login:** o login é feito direto no Firebase Auth (não passa pela nossa API). O Firebase já limita por IP/conta (`auth/too-many-requests`); isso é o que protege a senha. Para reforço: Identity Platform (proteção contra força bruta e bloqueio de contas, pago) ou só Google (sem senha). Na nossa API, o limitador em memória (`criarLimitador`) já existe; o limite forte é o **Firewall da Vercel** (regra de rate limit por IP em `/api/*`).
 - **Firebase App Check (reCAPTCHA v3/Enterprise):** protege Firestore/Auth/Storage contra chamadas fora do seu site (scripts, chaves vazadas). Esforço: ~1 dia (registrar o site no reCAPTCHA, `initializeAppCheck` só no build web, depois "Aplicar" no console, por serviço, **só depois de medir** o tráfego). Custo: reCAPTCHA v3 grátis; Enterprise gratuito até 10 mil avaliações/mês. **Cuidado:** aplicar App Check no Firestore também bloqueia o app do celular, que precisaria do provedor nativo (App Attest/Play Integrity); por isso só no modo "monitorar" até o app suportar. Não é urgente.
 - **Domínios autorizados (Firebase Auth):** em Authentication > Settings > Domínios autorizados, adicionar `admin.targetautospa.com.br` (e o domínio de preview da Vercel só durante o teste; remover depois).
-- **CORS da API:** hoje `ORIGENS_APP` em `api-vercel/_lib/http.js` tem só as origens do Tauri. Mudança necessária (não feita, não é deploy desta etapa): acrescentar **`https://admin.targetautospa.com.br`** à lista, por igualdade exata (como já é feito: `Set`, sem curinga, sem `*.vercel.app`). Origens de preview só fora de produção.
+- **CORS da API:** hoje `ORIGENS_APP` em `api-vercel/_lib/http.js` tem só as origens do Tauri. **Feito no código, sem deploy:** `https://admin.targetautospa.com.br` entrou em `ORIGENS_APP`, com teste; só vale após o próximo deploy da API. Era a mudança necessária:, por igualdade exata (como já é feito: `Set`, sem curinga, sem `*.vercel.app`). Origens de preview só fora de produção.
 - **Chave de API do Firebase:** é pública por desenho, mas restrinja no Google Cloud Console por "referenciadores HTTP" (`admin.targetautospa.com.br/*`) e por APIs usadas. Observação: o app Tauri usa a mesma chave com origem `tauri://localhost`, que **não é um referenciador** válido: se restringir por site, crie uma chave separada para o web.
 - **Mais para um painel exposto:** MFA (Identity Platform) para admins; sessões curtas (expirar login após X horas); log de atividades já existe (`login_admin`) — alertar login de IP novo; poucos admins; revisar e-mails de admin trimestralmente; domínio com DNSSEC/CAA; proteção de branch na `main` (o deploy sai dela); `npm audit` no CI.
 - **O que NÃO dá para garantir só no front-end:** tudo o que for do navegador (esconder telas, `GuardaPapel`, lista de e-mails, CSP, noindex) pode ser contornado por quem chama o Firestore/API direto com um token. O que realmente protege: **regras do Firestore, validação na API (token + papel), custom claims, App Check, Firewall/rate limit, MFA**. Qualquer conta que consiga virar `admin` em `users/{uid}` ganha tudo: as regras de `users` já impedem o autopromover; mantenha assim.
@@ -85,22 +85,34 @@ O que no web não faz sentido e fica de fora: checklist de fotos (câmera) e tel
 | Faturamento por período | `agendamentos` `pagamento.status == 'pago'` e `pagamento.pagoEm` no intervalo, soma de `total` (`getAggregateFromServer`, já usado no dashboard) | já existe |
 | Faturamento por serviço | mesma consulta, listando os documentos (até um teto) e somando os `itens` no cliente; **agregação no servidor não separa por item** | já existe; acima do teto, vale um agregado diário gravado pela API (decisão futura) |
 | Agendamentos por status | `count` por `status` e `inicio` no intervalo (já no dashboard, com `orderBy('inicio','desc')`) | já existe (`status ASC, inicio DESC`) |
-| Desempenho por funcionário | `funcionarioId == X`, `status == 'finalizado'`, `inicio` no intervalo: contagem e soma; lista de funcionários já carregada | **novo**: `agendamentos (funcionarioId ASC, status ASC, inicio DESC)` (a confirmar com o script de diagnóstico, como foi feito no dashboard) |
+| Desempenho por funcionário | `funcionarioId == X`, `status == 'finalizado'`, `inicio` no intervalo: contagem e soma; lista de funcionários já carregada | **novo, já no `firestore.indexes.json` (não implantado)**: `agendamentos (funcionarioId ASC, status ASC, inicio DESC)` |
 | Custos por categoria | `custos` por `competencia` no intervalo; soma por `categoria` no cliente (`custos.ts` já soma por período e expande recorrentes) | `custos (competencia)` automático |
 
 Margem (faturamento menos custos) sai da combinação do primeiro com o último. CSV: um arquivo por relatório, valores em reais com vírgula decimal, cabeçalho em português, período no nome. **Nada implantado**; o índice novo só entra com o seu OK.
 
 ## 6. Hospedagem (Vercel) e o que você precisa fazer
 
-O `vercel.json` na raiz do repositório já define build, saída e cabeçalhos. Pontos de atenção: a API continua no projeto próprio (`api-vercel`, outra raiz), então não conflita; confirme que **nenhum projeto existente da Vercel usa a raiz deste repositório** (senão ele passaria a usar este `vercel.json`).
+**Por que existe projeto separado (incidente do preview da lote-7):** o primeiro desenho pôs um `vercel.json` na raiz do repositório. O projeto da API (`target-auto-spa-api`) passou a usá-lo: o log do deploy mostra a instalação feita na pasta da API (32 pacotes, `engines` 22.x) e o erro `npm error Missing script: "build:web"`, porque o `package.json` da API não tem esse script. Foi removido. **Regra: nenhum `vercel.json` na raiz do repositório.** A configuração do Web fica em `web-admin/vercel.json`, que só vale para um projeto cujo Root Directory seja `web-admin`.
 
-1. **Vercel:** Add New > Project > importar o repositório do app; **Root Directory** = raiz; Framework Preset **Other**; o Build Command e o Output Directory vêm do `vercel.json` (`npm run build:web` e `build-web`). Production Branch: `main` (enquanto isso, teste com preview da branch).
-2. **Variáveis de ambiente** (Settings > Environment Variables): `VITE_ADMIN_EMAILS` (opcional). A configuração do Firebase hoje está no código (`src/lib/firebase.ts`); ela é pública por desenho, então não precisa de variável. Se preferir trocar por variáveis `VITE_FIREBASE_*`, é uma mudança pequena no modo web (decisão sua).
-3. **Domínio:** Settings > Domains > adicionar `admin.targetautospa.com.br`.
-4. **DNS (no provedor do domínio):** `CNAME admin` apontando para o valor que a Vercel mostrar (`cname.vercel-dns.com`). Se o DNS for da Vercel, ela cria sozinha. Esperar o certificado HTTPS.
-5. **Firebase Auth:** Authentication > Settings > Domínios autorizados > adicionar `admin.targetautospa.com.br`. Para o Google: no Google Cloud (Credenciais), o client "Aplicativo da Web" precisa ter `https://admin.targetautospa.com.br` em **Origens JavaScript autorizadas**. (O URI de redirecionamento `https://target-auto-spa-33842.firebaseapp.com/__/auth/handler` já vale.)
-6. **Vercel Firewall:** regra de limite por IP em `/api/*`; modo de ataque só se necessário.
-7. **API:** incluir a origem na lista de CORS (seção 3) e fazer o deploy da API (junto com o resto do lote 6, no mesmo deploy).
+**Desenho (o que tenho certeza / o que não tenho):**
+- Certeza: sem `vercel.json` na raiz, o projeto da API volta ao comportamento da `main` (a `main` não tem esse arquivo). Os previews das lotes 5 e 6 passaram assim.
+- Certeza: a Vercel lê o `vercel.json` do Root Directory do projeto, e `installCommand`, `buildCommand`, `outputDirectory`, `redirects`, `rewrites` e `headers` são campos válidos dele.
+- **Sem certeza (testar no primeiro deploy do projeto Web):** com Root Directory `web-admin`, o build precisa dos arquivos do repositório inteiro (`cd .. && npm ci`). Isso depende da opção **"Include source files outside of the Root Directory in the Build Step"** (deve estar ligada; é o padrão, mas confira). Se falhar, o plano B é Root Directory = raiz do repositório com Build Command, Output Directory e Install Command preenchidos no painel (sem `vercel.json`) e os cabeçalhos pelo painel/Firewall da Vercel.
+- Sem certeza: a regra de rewrite do SPA (`/((?!_app/|favicon.png).*)` para `/index.html`) e a ordem com o redirecionamento de `/`. Teste abrindo `/admin`, atualizando a página e `/`.
+
+**Passo a passo para você (painel da Vercel):**
+1. Add New > Project > importar o repositório `agencialumno/Target-Auto-Spa` (o mesmo repositório; será um segundo projeto).
+2. Nome: `target-auto-spa-admin`. **Root Directory: `web-admin`**. Framework Preset: **Other**.
+3. Em Build and Output Settings, deixe tudo sem substituir (vem do `web-admin/vercel.json`: install `cd .. && npm ci`, build `cd .. && npm run build:web`, saída `dist`).
+4. Settings > General: confirme **"Include source files outside of the Root Directory in the Build Step" = ligado**. Node.js Version: 22.x ou 24.x.
+5. Settings > Git: Production Branch `main`. Por enquanto só faça o primeiro deploy a partir de um preview (branch `lote-7`) e teste.
+6. Environment Variables: nenhuma é obrigatória. `VITE_ADMIN_EMAILS` é opcional (e-mails separados por vírgula).
+7. Settings > Domains > adicionar `admin.targetautospa.com.br`. No DNS do domínio, `CNAME admin` com o valor que a Vercel mostrar (normalmente `cname.vercel-dns.com`); se o DNS for da Vercel, ela cria sozinha.
+8. Firebase Auth: Authentication > Settings > Domínios autorizados > adicionar `admin.targetautospa.com.br` (e o domínio do preview só durante o teste). Google Cloud > Credenciais > client "Aplicativo da Web" > Origens JavaScript autorizadas > `https://admin.targetautospa.com.br`.
+9. Firewall da Vercel (projeto da API): regra de limite por IP em `/api/*`.
+10. API: o CORS do novo domínio já está no código; só vale depois do deploy da API (junto com o lote 6). Sem isso, as telas do web que chamam a API falham por CORS; o login e o dashboard (Firestore direto) não dependem disso.
+
+Importante: o projeto da API **não deve ser alterado** em nada no painel.
 
 ## 7. Esforço e entregas
 
@@ -110,17 +122,20 @@ O `vercel.json` na raiz do repositório já define build, saída e cabeçalhos. 
 | **2. Gestão em desktop** | Barra lateral, tabelas com filtros/paginação/CSV: usuários, agendamentos, pagamentos, serviços e preços, custos, atividades | 4 a 6 dias |
 | **3. Relatórios + supervisão de mensagens + endurecimento** | Os 5 relatórios com CSV, chat somente leitura, App Check em modo monitor, claim de admin | 3 a 5 dias |
 
-## 8. Decisões que preciso de você
+## 8. Decisões
 
-1. Recomendação (a), mesmo projeto: ok?
-2. Prefixo `/admin` na URL web, ou URL sem prefixo?
-3. Login: só Google, ou Google e e-mail/senha?
-4. Camada extra de admin: só lista de e-mails no front (fraca), ou custom claim + regra (forte, recomendado; mexe nas regras e exige um script)?
-5. HSTS com `preload` e `includeSubDomains`: mantenho ou só `max-age`?
-6. Chave de API do Firebase: restringir por site (exige chave separada para o web)?
-7. Config do Firebase: mantém no código ou passa para `VITE_FIREBASE_*`?
-8. Índice novo de funcionário (relatório): ok para a entrega 3?
+Já decididas por você: mesmo código com modo web; prefixo `/admin` com a raiz redirecionando para `/admin`; login só com Google; HSTS `max-age=31536000` sem `preload` e sem `includeSubDomains`; custom claim e chave de API separada ficam para depois; configuração do Firebase continua no código; índice de funcionário no arquivo (sem implantar); CORS no código (sem deploy).
 
-## O que foi criado nesta etapa (estrutura mínima)
+Ainda abertas:
+1. O projeto Web com Root Directory `web-admin` funciona na primeira tentativa? Só o primeiro preview mostra (ver "sem certeza" na seção 6).
+2. Quando começar a entrega 2 (gestão em desktop)?
 
-`scripts/build-web.mjs`, `npm run build:web`, `svelte.config.js` e `vite.config.js` (modo web por variável), `src/web/` (rotas web: login, layout, `/admin`, stub do Tauri), `src/lib/web/` (`acesso-admin.ts` com teste, `auth-web.ts`), `vercel.json`, `.gitignore` (`build-web/`).
+## O que existe nesta etapa
+
+- `scripts/web-admin/dist.mjs` e `npm run build:web` (saída em `web-admin/dist/`, ignorada pelo git).
+- `svelte.config.js` e `vite.config.js`: modo web só com `BUILD_WEB_ADMIN=1`.
+- `src/web/`: rotas web (raiz redireciona para `/admin`), `Entrada.svelte` (login Google, verificação de papel, "acesso negado" com desconexão), stub do Tauri.
+- `src/lib/web/`: `acesso-admin.ts` (com teste) e `auth-web.ts`.
+- `web-admin/vercel.json`: configuração e cabeçalhos do projeto Web (não há `vercel.json` na raiz).
+- `firestore.indexes.json`: índice `agendamentos (funcionarioId, status, inicio desc)` adicionado (não implantado).
+- `api-vercel/_lib/http.js`: origem `https://admin.targetautospa.com.br` no CORS (não implantado).

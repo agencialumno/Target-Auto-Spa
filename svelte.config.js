@@ -30,8 +30,8 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({
-      pages: WEB ? 'build-web' : 'build',
-      assets: WEB ? 'build-web' : 'build',
+      pages: WEB ? 'web-admin/dist' : 'build',
+      assets: WEB ? 'web-admin/dist' : 'build',
       fallback: 'index.html'
     }),
     ...(WEB ? { files: { routes: 'src/web/routes' }, csp: { mode: 'hash', directives: CSP_WEB } } : {})

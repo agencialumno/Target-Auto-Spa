@@ -1,7 +1,7 @@
 # Dependências e builds
 node_modules/
 build/
-build-web/
+web-admin/dist/
 .svelte-kit/
 dist/
 .vercel/
