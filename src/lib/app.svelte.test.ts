@@ -66,79 +66,103 @@ beforeEach(() => {
   app.iniciar(cliente);
 });
 
-describe('criarAgendamento', () => {
-  const base = { data: '2030-05-10', hora: '09:00', veiculo: { modelo: 'Gol', placa: 'abc1d23' } };
+describe('criarAgendamento (pela API do servidor)', () => {
+  const base = { data: '2030-05-10', hora: '09:00', veiculo: { modelo: 'Gol', placa: 'ABC1D23' } };
 
-  it('agendamento e vaga vão no MESMO batch, com nome e preço do serviço no momento da contratação', async () => {
-    const id = await app.criarAgendamento({ ...base, servicos: ['eco01'] });
-    expect(m.lote.commit).toHaveBeenCalledTimes(1);
-    const [refAg, dadosAg] = m.lote.set.mock.calls[0] as any[];
-    const [refVaga, dadosVaga] = m.lote.set.mock.calls[1] as any[];
-    expect(refAg.id).toBe(id);
-    expect(dadosAg).toMatchObject({
-      clienteId: 'u1',
-      clienteNome: 'Ana',
-      condominioId: 'c1',
-      itens: [{ servicoId: 'eco01', nome: 'Banho Básico', precoCentavos: 6500 }],
-      total: 6500,
-      status: 'agendado',
-      externo: false,
-      vagaId: 'c1_2030-05-10_09:00_1',
-      veiculo: { modelo: 'Gol', placa: 'ABC1D23' },
-      criadoEm: 'SERVER_TS'
-    });
-    expect(refVaga.caminho).toBe('ocupacao/c1_2030-05-10_09:00_1');
-    expect(dadosVaga).toEqual({ condominioId: 'c1', data: '2030-05-10', hora: '09:00', externo: false, agendamentoId: id });
+  it('chama POST /api/agendamentos/criar com os ids, nunca com preço ou total; não escreve nada no Firestore', async () => {
+    m.chamarApi.mockResolvedValue({ id: 'ag-novo' });
+    const id = await app.criarAgendamento({ ...base, servicos: ['eco01'], chave: 'chave-12345678' });
+    expect(id).toBe('ag-novo');
+    expect(m.chamarApi).toHaveBeenCalledTimes(1);
+    const [caminho, corpo, grupo] = m.chamarApi.mock.calls[0] as any[];
+    expect([caminho, grupo]).toEqual(['criar', 'agendamentos']);
+    expect(corpo).toEqual({ servicos: ['eco01'], data: '2030-05-10', hora: '09:00', veiculo: base.veiculo, observacoes: '', chave: 'chave-12345678' });
+    expect(JSON.stringify(corpo)).not.toMatch(/preco|total|condominio|clienteId/i);
+    expect(m.lote.commit).not.toHaveBeenCalled();
+    expect(m.lote.set).not.toHaveBeenCalled();
   });
 
-  it('serviço de insulfilm vira externo e usa a vaga ext_', async () => {
-    await app.criarAgendamento({ ...base, servicos: ['eco24'] });
-    const [, dadosAg] = m.lote.set.mock.calls[0] as any[];
-    expect(dadosAg).toMatchObject({ externo: true, vagaId: 'ext_2030-05-10_09:00_1' });
-    expect((m.lote.set.mock.calls[1] as any[])[0].caminho).toBe('ocupacao/ext_2030-05-10_09:00_1');
+  it('sem vaga: o erro do servidor chega em português, sem plano B pelo Firestore', async () => {
+    m.chamarApi.mockRejectedValue(new Error('Horário indisponível: não há vaga às 09:30. Escolha outro horário.'));
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toThrow(/Horário indisponível/);
+    expect(m.lote.commit).not.toHaveBeenCalled();
+    expect(m.setDoc).not.toHaveBeenCalled();
   });
 
-  it('insulfilm misturado com outro serviço é recusado, sem escrever nada', async () => {
-    await expect(app.criarAgendamento({ ...base, servicos: ['eco01', 'eco24'] })).rejects.toThrow(/separado/i);
+  it('falha de rede também não cai no caminho antigo (poderia duplicar a reserva)', async () => {
+    m.chamarApi.mockRejectedValue(new Error('Sem conexão com o servidor. Verifique a internet.'));
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'], chave: 'chave-12345678' })).rejects.toThrow(/Sem conexão/);
     expect(m.lote.commit).not.toHaveBeenCalled();
   });
 
-  it('vaga 1 ocupada: tenta a 2 (capacidade 2) e confirma', async () => {
-    app.capacidade = 2;
-    m.lote.commit.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'permission-denied' }));
-    m.getDoc.mockResolvedValueOnce({ exists: () => true }); // a vaga 1 existe: alguém pegou
-    await app.criarAgendamento({ ...base, servicos: ['eco01'] });
-    expect(m.lote.commit).toHaveBeenCalledTimes(2);
-    const vagas = m.lote.set.mock.calls.filter((c: any[]) => c[0].caminho?.startsWith('ocupacao/')).map((c: any[]) => c[0].caminho);
-    expect(vagas).toEqual(['ocupacao/c1_2030-05-10_09:00_1', 'ocupacao/c1_2030-05-10_09:00_2']);
+  it('insulfilm misturado com outro serviço é recusado antes de chamar o servidor', async () => {
+    await expect(app.criarAgendamento({ ...base, servicos: ['eco01', 'eco24'] })).rejects.toThrow(/separado/i);
+    expect(m.chamarApi).not.toHaveBeenCalled();
   });
 
-  it('todas as vagas ocupadas: "Horário indisponível"', async () => {
-    app.capacidade = 2;
-    m.lote.commit.mockRejectedValue(Object.assign(new Error('x'), { code: 'permission-denied' }));
-    m.getDoc.mockResolvedValue({ exists: () => true });
-    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toThrow(/Horário indisponível/);
-    expect(m.lote.commit).toHaveBeenCalledTimes(2);
-    m.lote.commit.mockResolvedValue(undefined);
-  });
-
-  it('erro que não é vaga ocupada (ex.: preço mudou) é repassado, sem tentar outra vaga', async () => {
-    app.capacidade = 3;
-    m.lote.commit.mockRejectedValueOnce(Object.assign(new Error('x'), { code: 'permission-denied' }));
-    // getDoc da vaga: não existe
-    await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toMatchObject({ code: 'permission-denied' });
-    expect(m.lote.commit).toHaveBeenCalledTimes(1);
-  });
-
-  it('recusa serviço desativado ou fora do catálogo, sem escrever nada', async () => {
+  it('recusa serviço desativado ou fora do catálogo, sem chamar o servidor', async () => {
     await expect(app.criarAgendamento({ ...base, servicos: ['eco02'] })).rejects.toThrow(/indispon/i);
     await expect(app.criarAgendamento({ ...base, servicos: ['eco03'] })).rejects.toThrow(/indispon/i);
-    expect(m.lote.commit).not.toHaveBeenCalled();
+    expect(m.chamarApi).not.toHaveBeenCalled();
   });
 
   it('recusa quem não é cliente de um condomínio', async () => {
     app.iniciar({ uid: 'u2', nome: 'Gui', role: 'gerente', condominioId: 'c1' });
     await expect(app.criarAgendamento({ ...base, servicos: ['eco01'] })).rejects.toThrow(/condom/i);
+    expect(m.chamarApi).not.toHaveBeenCalled();
+  });
+});
+
+describe('grade de horários pela duração', () => {
+  const cheio = (hora: string, data = '2030-05-10') => ({ id: `${data}${hora}`, data, hora, externo: false });
+
+  it('serviço de 90 min às 09:00 precisa de 09:00, 09:30 e 10:00 livres', () => {
+    app.capacidade = 1;
+    app.vagasRegulares = [cheio('10:00')];
+    expect(app.horarioLivre('2030-05-10', '09:00', 90, false)).toBe(false); // o 10:00 está ocupado
+    expect(app.horarioLivre('2030-05-10', '09:00', 60, false)).toBe(true); // 60 min só precisa de 09:00 e 09:30
+    expect(app.horarioLivre('2030-05-10', '08:30', 90, false)).toBe(true); // 08:30, 09:00 e 09:30: o 10:00 não é necessário
+  });
+
+  it('um horário no meio do serviço bloqueia só os inícios que o atravessam', () => {
+    app.capacidade = 1;
+    app.vagasRegulares = [cheio('09:30')];
+    expect(app.horarioLivre('2030-05-10', '09:00', 60, false)).toBe(false);
+    expect(app.horarioLivre('2030-05-10', '09:00', 30, false)).toBe(true);
+    expect(app.horarioLivre('2030-05-10', '10:00', 90, false)).toBe(true);
+    expect(app.horarioLivre('2030-05-10', '08:30', 60, false)).toBe(true); // 08:30 e 09:00
+    expect(app.horarioLivre('2030-05-10', '08:30', 90, false)).toBe(false); // precisa também do 09:30
+    expect(app.horarioLivre('2030-05-10', '08:00', 60, false)).toBe(true);
+  });
+
+  it('capacidade 2: só fica indisponível quando as duas vagas do horário existem', () => {
+    app.capacidade = 2;
+    app.vagasRegulares = [cheio('09:30'), cheio('09:30')];
+    expect(app.horarioLivre('2030-05-10', '09:00', 60, false)).toBe(false);
+    app.vagasRegulares = [cheio('09:30')];
+    expect(app.horarioLivre('2030-05-10', '09:00', 60, false)).toBe(true);
+  });
+
+  it('outro dia não interfere; insulfilm usa as vagas externas', () => {
+    app.capacidade = 1;
+    app.vagasRegulares = [cheio('09:30', '2030-05-11')];
+    expect(app.horarioLivre('2030-05-10', '09:00', 60, false)).toBe(true);
+    app.capacidadeExterna = 1;
+    app.vagasExternas = [{ id: 'x', data: '2030-05-10', hora: '10:00', externo: true }];
+    expect(app.horarioLivre('2030-05-10', '09:00', 90, true)).toBe(false);
+    expect(app.horarioLivre('2030-05-10', '09:00', 90, false)).toBe(true);
+  });
+});
+
+describe('cancelar libera todas as vagas da reserva', () => {
+  it('reserva nova (vagasIds) apaga todas; reserva antiga (só vagaId) apaga a única', async () => {
+    const ag = (id: string, extra: object) => ({ id, vagaId: 'v1', vagasIds: ['v1'], status: 'agendado', ...extra }) as any;
+    app.agendamentos = [ag('novo', { vagaId: 'v1', vagasIds: ['v1', 'v2', 'v3'] }), ag('antigo', { vagaId: 'a1', vagasIds: ['a1'] })];
+    await app.cancelar('novo');
+    expect(m.lote.delete.mock.calls.map((c: any[]) => c[0].caminho)).toEqual(['ocupacao/v1', 'ocupacao/v2', 'ocupacao/v3']);
+    m.lote.delete.mockClear();
+    await app.cancelar('antigo');
+    expect(m.lote.delete.mock.calls.map((c: any[]) => c[0].caminho)).toEqual(['ocupacao/a1']);
   });
 });
 

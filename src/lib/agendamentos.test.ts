@@ -251,3 +251,13 @@ describe('aguardaConfirmacaoPagamento', () => {
     expect(aguardaConfirmacaoPagamento(ag as any)).toBe(esperado);
   });
 });
+
+describe('vagasIds (reserva por duração)', () => {
+  const base = { clienteId: 'u1', itens: [], total: 0, data: '2030-01-01', hora: '09:00', inicio: new Date(), status: 'agendado', veiculo: {}, vagaId: 'v1' };
+  it('reserva nova traz todas as vagas; reserva antiga cai para a vaga única', () => {
+    expect(lerAgendamento('a', { ...base, vagasIds: ['v1', 'v2', 'v3'] }).vagasIds).toEqual(['v1', 'v2', 'v3']);
+    expect(lerAgendamento('a', { ...base }).vagasIds).toEqual(['v1']);
+    expect(lerAgendamento('a', { ...base, vagaId: undefined }).vagasIds).toEqual([]);
+    expect(lerAgendamento('a', { ...base, vagasIds: ['v1', 7, null] }).vagasIds).toEqual(['v1']);
+  });
+});

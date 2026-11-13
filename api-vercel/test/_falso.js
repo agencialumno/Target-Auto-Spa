@@ -1,6 +1,12 @@
 // Firestore e Auth falsos em memória, com transações, para testar pagamento e webhook sem rede.
 export function criarBanco(inicial = {}) {
   const docs = new Map(Object.entries(inicial));
+  // Versão por documento: a transação confere se o que leu mudou antes de gravar (como o Firestore)
+  const versoes = new Map();
+  const versao = (c) => versoes.get(c) ?? 0;
+  const gravarSync = (c, v) => (docs.set(c, v), versoes.set(c, versao(c) + 1));
+  const apagarSync = (c) => (docs.delete(c), versoes.set(c, versao(c) + 1));
+  let seq = 0;
 
   const lerCampo = (obj, caminho) => caminho.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 
@@ -11,14 +17,14 @@ export function criarBanco(inicial = {}) {
       return { exists: docs.has(caminho), id: caminho.split('/').pop(), data: () => docs.get(caminho) };
     },
     async set(v, opcoes) {
-      docs.set(caminho, opcoes?.merge ? { ...(docs.get(caminho) ?? {}), ...v } : v);
+      gravarSync(caminho, opcoes?.merge ? { ...(docs.get(caminho) ?? {}), ...v } : v);
     },
     async update(v) {
       if (!docs.has(caminho)) throw new Error('NOT_FOUND');
-      docs.set(caminho, { ...docs.get(caminho), ...v });
+      gravarSync(caminho, { ...docs.get(caminho), ...v });
     },
     async delete() {
-      docs.delete(caminho);
+      apagarSync(caminho);
     }
   });
 
@@ -38,18 +44,27 @@ export function criarBanco(inicial = {}) {
   return {
     docs,
     doc: ref,
-    collection: (nome) => consulta(nome),
+    collection: (nome) => ({ ...consulta(nome), doc: (id) => ref(`${nome}/${id ?? 'auto' + ++seq}`) }),
+    // Transação otimista: se um documento lido mudou até o commit, repete (como o Firestore)
     async runTransaction(fn) {
-      const escritas = [];
-      const tx = {
-        get: (r) => (r.path ? r.get() : r.get()),
-        set: (r, v, o) => void escritas.push(() => r.set(v, o)),
-        update: (r, v) => void escritas.push(() => r.update(v)),
-        delete: (r) => void escritas.push(() => r.delete())
-      };
-      const resultado = await fn(tx);
-      for (const e of escritas) await e();
-      return resultado;
+      for (let tentativa = 0; tentativa < 5; tentativa++) {
+        const lidos = new Map();
+        const escritas = [];
+        const tx = {
+          async get(r) {
+            lidos.set(r.path, versao(r.path));
+            return r.get();
+          },
+          set: (r, v, o) => void escritas.push(() => gravarSync(r.path, o?.merge ? { ...(docs.get(r.path) ?? {}), ...v } : v)),
+          update: (r, v) => void escritas.push(() => gravarSync(r.path, { ...docs.get(r.path), ...v })),
+          delete: (r) => void escritas.push(() => apagarSync(r.path))
+        };
+        const resultado = await fn(tx);
+        if ([...lidos].some(([c, v]) => versao(c) !== v)) continue;
+        for (const e of escritas) e(); // conferência e gravação sem pausa: atômico
+        return resultado;
+      }
+      throw new Error('transação abortada por conflito');
     }
   };
 }

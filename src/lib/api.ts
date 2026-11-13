@@ -15,7 +15,7 @@ const comTempo = <T>(p: Promise<T>, ms: number, mensagem: string) =>
 
 // Chama a API da Vercel com o ID token de quem está logado; erros vêm como { erro: "mensagem" }.
 // Nunca fica pendurada nem falha sem mensagem: token e requisição têm tempo limite.
-export async function chamarApi(caminho: string, corpo: object, grupo: 'usuarios' | 'pagamento' = 'usuarios') {
+export async function chamarApi(caminho: string, corpo: object, grupo: 'usuarios' | 'pagamento' | 'agendamentos' = 'usuarios') {
   let token: string | undefined;
   try {
     token = await comTempo(

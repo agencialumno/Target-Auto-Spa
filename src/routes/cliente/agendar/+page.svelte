@@ -26,15 +26,24 @@
   let campoPlaca = $state<HTMLInputElement>();
   let enviando = $state(false);
   let erro = $state('');
+  // Sem vaga é diferente de erro: o horário foi pego por outra pessoa; a grade já se atualiza
+  let semVaga = $state(false);
+  // Chave de idempotência: a mesma tentativa (mesmos dados) repetida após falha de rede devolve a MESMA reserva
+  const sessaoReserva = crypto.randomUUID().replace(/-/g, '');
+  const chaveDe = (dados: string) => {
+    let h = 5381;
+    for (const c of dados) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0;
+    return `${sessaoReserva}${h.toString(16)}`.slice(0, 64);
+  };
 
   const diaAtual = $derived(dias.find((d) => chaveData(d) === dataSel) ?? dias[0]);
 
-  // Esconde os horários cheios (todas as vagas do horário já foram pegas)
+  // Um horário só aparece se TODOS os horários de 30 min que o serviço ocupa têm vaga
   const horarios = $derived(
     (reserva.avulso
       ? horariosInsulfilm(diaAtual, agora)
       : horariosLavagem(diaAtual, reserva.duracaoTotal, agora)
-    ).filter((h) => !app.horarioCheio(dataSel, h, reserva.avulso))
+    ).filter((h) => app.horarioLivre(dataSel, h, reserva.duracaoTotal, reserva.avulso))
   );
 
   const rotuloDia = (d: Date) => ({
@@ -54,6 +63,7 @@
     // O estado de carregando vem ANTES de qualquer outro passo
     enviando = true;
     erro = '';
+    semVaga = false;
     placaInvalida = false;
     try {
       if (!reserva.hora) {
@@ -67,11 +77,14 @@
         return;
       }
       reserva.data = dataSel;
+      const servicos = reserva.itens.map((s) => s.id);
+      const veiculo = { modelo: modelo.trim(), placa: placa.trim().toUpperCase() };
       novoId = await app.criarAgendamento({
-        servicos: reserva.itens.map((s) => s.id),
+        servicos,
         data: dataSel,
         hora: reserva.hora,
-        veiculo: { modelo: modelo.trim(), placa: placa.trim().toUpperCase() }
+        veiculo,
+        chave: chaveDe([servicos.join(','), dataSel, reserva.hora, veiculo.placa, veiculo.modelo].join('|'))
       });
       // Começa a contar os 15 minutos para pagar (não abre nada; o botão "Pagar" abre)
       void app.prepararPagamento(novoId);
@@ -80,9 +93,12 @@
       erro =
         codigo === 'permission-denied'
           ? 'O preço ou a disponibilidade mudou. Volte aos serviços e tente de novo.'
-          : ((e as Error)?.message ?? 'Não foi possível agendar.');
+          : `${(e as Error)?.message ?? 'Não foi possível agendar.'}${/conex|demorou|tempo esgotado/i.test((e as Error)?.message ?? '') ? ' Pode tentar de novo: a reserva não é duplicada.' : ''}`;
       // Alguém pegou o horário agora há pouco: escolha outro
-      if ((e as Error)?.message?.startsWith('Horário indisponível')) reserva.hora = null;
+      if ((e as Error)?.message?.startsWith('Horário indisponível')) {
+        semVaga = true;
+        reserva.hora = null;
+      }
     } finally {
       enviando = false;
     }
@@ -213,7 +229,11 @@
     </section>
 
     <div class="cta">
-      {#if erro}<p class="erro-agendar" role="alert">{erro}</p>{/if}
+      {#if semVaga}
+        <p class="erro-agendar" role="status">Esse horário acabou de ser reservado por outra pessoa. Escolha outro horário.</p>
+      {:else if erro}
+        <p class="erro-agendar" role="alert">{erro}</p>
+      {/if}
       <button class="btn-primario" disabled={enviando} aria-busy={enviando} onclick={confirmar}>
         {#if enviando}Agendando...{:else if reserva.hora}Confirmar às {reserva.hora}{:else}Confirmar agendamento{/if}
       </button>
