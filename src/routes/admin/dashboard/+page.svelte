@@ -1,20 +1,15 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import TelaAdmin from '$lib/components/TelaAdmin.svelte';
+  import BlocoDash from '$lib/components/BlocoDash.svelte';
+  import { Bloco } from '$lib/bloco.svelte';
   import { app, rotuloStatus } from '$lib/app.svelte';
   import { brlCentavos } from '$lib/agendamentos';
   import { somarCustos, nomeCategoria } from '$lib/custos';
   import { listarCustos } from '$lib/custos-admin';
-  import {
-    cartoesTempoReal,
-    detalharPeriodo,
-    limitesDoPeriodo,
-    rentabilidade,
-    STATUS_ORDEM,
-    ticketMedio,
-    type Detalhe
-  } from '$lib/dashboard';
+  import { cartoesTempoReal, detalharPeriodo, limitesDoPeriodo, rentabilidade, STATUS_ORDEM, ticketMedio } from '$lib/dashboard';
   import { agendamentosDoPeriodo, contarPorStatus, contarUsuarios, faturamento, ultimasMovimentacoes } from '$lib/dashboard-dados';
-  import { descreverMudanca, rotuloAcao, type Atividade } from '$lib/atividades-consulta';
+  import { descreverMudanca, rotuloAcao } from '$lib/atividades-consulta';
 
   const mesAtual = () => {
     const d = new Date();
@@ -23,18 +18,33 @@
 
   let de = $state(mesAtual());
   let ate = $state(mesAtual());
-  let carregando = $state(false);
-  let erro = $state('');
+  const periodoInvalido = $derived(!limitesDoPeriodo(de, ate));
 
-  let usuarios = $state<Record<string, number> | null>(null);
-  let porStatus = $state<Record<string, number> | null>(null);
-  let receita = $state<{ centavos: number; pagos: number } | null>(null);
-  let custos = $state<{ totalCentavos: number; porCategoria: Record<string, number> } | null>(null);
-  let movimentos = $state<Atividade[]>([]);
-  let detalhe = $state<Detalhe | null>(null);
-  let carregandoDetalhe = $state(false);
+  // Período vigente lido na hora da carga: os blocos nunca leem estado reativo por conta própria
+  const periodo = () => {
+    const l = limitesDoPeriodo(de, ate);
+    if (!l) throw Object.assign(new Error('periodo'), { code: 'periodo-invalido' });
+    return l;
+  };
 
-  // Cartões do topo em tempo real: sobre o que o app já escuta (sem leitura extra)
+  const bUsuarios = new Bloco(contarUsuarios);
+  const bStatus = new Bloco(() => {
+    const l = periodo();
+    return contarPorStatus(l.inicio, l.fim);
+  });
+  const bFinanceiro = new Bloco(async () => {
+    const l = periodo();
+    const [r, c] = await Promise.all([faturamento(l.inicio, l.fim), listarCustos()]);
+    return { receita: r, custos: somarCustos(c, de, ate) };
+  });
+  const bMov = new Bloco(() => ultimasMovimentacoes(20), (d) => d.length === 0);
+  const bDetalhe = new Bloco(async () => {
+    const l = periodo();
+    return detalharPeriodo(await agendamentosDoPeriodo(l.inicio, l.fim));
+  });
+  let detalheAberto = $state(false);
+
+  // Cartões do topo em tempo real: sobre o que o app já escuta (sem leitura extra, sem rede)
   let agora = $state(new Date());
   $effect(() => {
     const t = setInterval(() => (agora = new Date()), 30_000);
@@ -42,59 +52,36 @@
   });
   const tempoReal = $derived(cartoesTempoReal(app.agendamentos, agora));
 
-  const limites = $derived(limitesDoPeriodo(de, ate));
-  const resultado = $derived(receita && custos ? rentabilidade(receita.centavos, custos.totalCentavos) : null);
-
-  async function carregar() {
-    if (!limites || carregando) {
-      if (!limites) erro = 'Período inválido: o mês final não pode ser antes do inicial.';
-      return;
-    }
-    carregando = true;
-    erro = '';
-    detalhe = null;
-    try {
-      const [u, s, r, c, m] = await Promise.all([
-        contarUsuarios(),
-        contarPorStatus(limites.inicio, limites.fim),
-        faturamento(limites.inicio, limites.fim),
-        listarCustos(),
-        ultimasMovimentacoes(20)
-      ]);
-      usuarios = u;
-      porStatus = s;
-      receita = r;
-      custos = somarCustos(c, de, ate);
-      movimentos = m;
-    } catch (e) {
-      const codigo = (e as { code?: string })?.code;
-      erro =
-        codigo === 'failed-precondition'
-          ? 'Falta um índice do Firestore para esta consulta. O link para criá-lo aparece no console do navegador.'
-          : 'Não foi possível carregar o dashboard.';
-    } finally {
-      carregando = false;
-    }
+  // `untrack`: o estado dos blocos nunca realimenta o efeito (era o laço de recarga que prendia em "atualizando")
+  function carregarPeriodo() {
+    untrack(() => {
+      bStatus.carregar();
+      bFinanceiro.carregar();
+      if (detalheAberto) bDetalhe.carregar();
+    });
   }
-
-  async function carregarDetalhe() {
-    if (!limites || carregandoDetalhe) return;
-    carregandoDetalhe = true;
-    try {
-      detalhe = detalharPeriodo(await agendamentosDoPeriodo(limites.inicio, limites.fim));
-    } catch {
-      erro = 'Não foi possível carregar os detalhes.';
-    } finally {
-      carregandoDetalhe = false;
-    }
-  }
-
   $effect(() => {
-    carregar();
+    void de;
+    void ate;
+    carregarPeriodo();
+  });
+  $effect(() => {
+    untrack(() => {
+      bUsuarios.carregar();
+      bMov.carregar();
+    });
   });
 
+  function abrirDetalhe() {
+    detalheAberto = true;
+    bDetalhe.carregar();
+  }
+
   const quando = (d: Date | null) => (d ? d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '');
-  const totalAgendamentos = $derived(porStatus ? STATUS_ORDEM.reduce((s, k) => s + (porStatus![k] ?? 0), 0) : 0);
+  const totalAgendamentos = $derived(bStatus.dados ? STATUS_ORDEM.reduce((s, k) => s + (bStatus.dados![k] ?? 0), 0) : 0);
+  const resultado = $derived(
+    bFinanceiro.dados ? rentabilidade(bFinanceiro.dados.receita.centavos, bFinanceiro.dados.custos.totalCentavos) : null
+  );
 </script>
 
 <TelaAdmin titulo="Dashboard" sub="Visão geral do negócio">
@@ -109,88 +96,92 @@
     </div>
   </section>
 
-  <form class="periodo" onsubmit={(e) => (e.preventDefault(), carregar())}>
+  <form class="periodo" onsubmit={(e) => (e.preventDefault(), carregarPeriodo())}>
     <label><span>De</span><input type="month" bind:value={de} /></label>
     <label><span>Até</span><input type="month" bind:value={ate} /></label>
-    <button class="btn-primario" type="submit" disabled={carregando}>{carregando ? 'Atualizando...' : 'Atualizar'}</button>
+    <button class="btn-primario" type="submit" disabled={periodoInvalido}>Atualizar</button>
   </form>
+  {#if periodoInvalido}<p class="erro" role="alert">Período inválido: o mês final não pode ser antes do inicial.</p>{/if}
 
-  {#if erro}<p class="erro" role="alert">{erro}</p>{/if}
-
-  {#if resultado && receita && custos}
-    <h2>Financeiro</h2>
-    <div class="grade">
-      <div class="kpi card"><small>Faturamento (pagos)</small><strong>{brlCentavos(resultado.faturamentoCentavos)}</strong><small>{receita.pagos} pagamentos</small></div>
-      <div class="kpi card"><small>Custos</small><strong>{brlCentavos(resultado.custosCentavos)}</strong></div>
-      <div class="kpi card">
-        <small>Rentabilidade</small>
-        <strong class:neg={resultado.resultadoCentavos < 0}>{brlCentavos(resultado.resultadoCentavos)}</strong>
-        <small>{resultado.margemPct === null ? 'sem receita' : `margem ${resultado.margemPct}%`}</small>
+  <BlocoDash titulo="Financeiro" estado={bFinanceiro.estado} erro={bFinanceiro.erro} aoTentar={() => bFinanceiro.carregar()}>
+    {#if resultado && bFinanceiro.dados}
+      <div class="grade">
+        <div class="kpi card"><small>Faturamento (pagos)</small><strong>{brlCentavos(resultado.faturamentoCentavos)}</strong><small>{bFinanceiro.dados.receita.pagos} pagamentos</small></div>
+        <div class="kpi card"><small>Custos</small><strong>{brlCentavos(resultado.custosCentavos)}</strong></div>
+        <div class="kpi card">
+          <small>Rentabilidade</small>
+          <strong class:neg={resultado.resultadoCentavos < 0}>{brlCentavos(resultado.resultadoCentavos)}</strong>
+          <small>{resultado.margemPct === null ? 'sem receita' : `margem ${resultado.margemPct}%`}</small>
+        </div>
+        <div class="kpi card"><small>Ticket médio</small><strong>{brlCentavos(ticketMedio(bFinanceiro.dados.receita.centavos, bFinanceiro.dados.receita.pagos))}</strong></div>
       </div>
-      <div class="kpi card"><small>Ticket médio</small><strong>{brlCentavos(ticketMedio(receita.centavos, receita.pagos))}</strong></div>
-    </div>
-    {#if Object.keys(custos.porCategoria).length}
-      <p class="peq">
-        Custos por categoria:
-        {#each Object.entries(custos.porCategoria) as [c, v], i}{i ? ' · ' : ''}{nomeCategoria(c)} {brlCentavos(v)}{/each}
-      </p>
+      {#if Object.keys(bFinanceiro.dados.custos.porCategoria).length}
+        <p class="peq">
+          Custos por categoria:
+          {#each Object.entries(bFinanceiro.dados.custos.porCategoria) as [c, v], i}{i ? ' · ' : ''}{nomeCategoria(c)} {brlCentavos(v)}{/each}
+        </p>
+      {/if}
     {/if}
-  {/if}
+  </BlocoDash>
 
-  {#if porStatus}
-    <h2>Agendamentos no período ({totalAgendamentos})</h2>
-    <div class="grade">
-      {#each STATUS_ORDEM as s}
-        <div class="kpi card"><small>{rotuloStatus[s]}</small><strong>{porStatus[s]}</strong></div>
-      {/each}
-    </div>
-    <p class="peq">"Realizados" = em atendimento + finalizados; "concluídos" = finalizados; "pendentes" = agendados.</p>
-  {/if}
+  <BlocoDash titulo={`Agendamentos no período (${totalAgendamentos})`} estado={bStatus.estado} erro={bStatus.erro} aoTentar={() => bStatus.carregar()}>
+    {#if bStatus.dados}
+      <div class="grade">
+        {#each STATUS_ORDEM as s}
+          <div class="kpi card"><small>{rotuloStatus[s]}</small><strong>{bStatus.dados[s]}</strong></div>
+        {/each}
+      </div>
+      <p class="peq">"Realizados" = em atendimento + finalizados; "concluídos" = finalizados; "pendentes" = agendados.</p>
+    {/if}
+  </BlocoDash>
 
-  {#if usuarios}
-    <h2>Usuários</h2>
-    <div class="grade">
-      <div class="kpi card"><small>Clientes</small><strong>{usuarios.cliente}</strong></div>
-      <div class="kpi card"><small>Gerentes</small><strong>{usuarios.gerente}</strong></div>
-      <div class="kpi card"><small>Funcionários</small><strong>{usuarios.funcionario}</strong></div>
-      <div class="kpi card"><small>Administradores</small><strong>{usuarios.admin}</strong></div>
-    </div>
-  {/if}
+  <BlocoDash titulo="Usuários" estado={bUsuarios.estado} erro={bUsuarios.erro} aoTentar={() => bUsuarios.carregar()}>
+    {#if bUsuarios.dados}
+      <div class="grade">
+        <div class="kpi card"><small>Clientes</small><strong>{bUsuarios.dados.cliente}</strong></div>
+        <div class="kpi card"><small>Gerentes</small><strong>{bUsuarios.dados.gerente}</strong></div>
+        <div class="kpi card"><small>Funcionários</small><strong>{bUsuarios.dados.funcionario}</strong></div>
+        <div class="kpi card"><small>Administradores</small><strong>{bUsuarios.dados.admin}</strong></div>
+      </div>
+    {/if}
+  </BlocoDash>
 
-  <h2>Serviços e desempenho</h2>
-  {#if !detalhe}
-    <button class="btn-secundario" onclick={carregarDetalhe} disabled={carregandoDetalhe || !limites}>
-      {carregandoDetalhe ? 'Carregando...' : 'Carregar detalhes do período'}
-    </button>
+  {#if !detalheAberto}
+    <h2>Serviços e desempenho</h2>
+    <button class="btn-secundario" onclick={abrirDetalhe} disabled={periodoInvalido}>Carregar detalhes do período</button>
     <p class="peq">Abre até 500 agendamentos do período (leitura maior), por isso só sob demanda.</p>
   {:else}
-    {#if detalhe.truncado}<p class="peq" role="status">Mostrando só os {detalhe.lidos} agendamentos mais recentes do período.</p>{/if}
-    <h3>Serviços executados</h3>
-    {#if detalhe.servicos.length}
-      <ul>{#each detalhe.servicos as s}<li>{s.nome}: <b>{s.vezes}</b></li>{/each}</ul>
-    {:else}<p class="peq">Nenhum serviço finalizado no período.</p>{/if}
-    <h3>Desempenho por funcionário{detalhe.notaMedia !== null ? ` (nota média geral ${detalhe.notaMedia})` : ''}</h3>
-    {#if detalhe.funcionarios.length}
-      <ul>
-        {#each detalhe.funcionarios as f}<li>{f.nome}: <b>{f.finalizados}</b> finalizados{f.notaMedia !== null ? ` · nota ${f.notaMedia}` : ''}</li>{/each}
-      </ul>
-    {:else}<p class="peq">Nenhum atendimento finalizado com funcionário atribuído.</p>{/if}
+    <BlocoDash titulo="Serviços e desempenho" estado={bDetalhe.estado} erro={bDetalhe.erro} aoTentar={() => bDetalhe.carregar()}>
+      {#if bDetalhe.dados}
+        {@const detalhe = bDetalhe.dados}
+        {#if detalhe.truncado}<p class="peq" role="status">Mostrando só os {detalhe.lidos} agendamentos mais recentes do período.</p>{/if}
+        <h3>Serviços executados</h3>
+        {#if detalhe.servicos.length}
+          <ul>{#each detalhe.servicos as s}<li>{s.nome}: <b>{s.vezes}</b></li>{/each}</ul>
+        {:else}<p class="peq">Nenhum serviço finalizado no período.</p>{/if}
+        <h3>Desempenho por funcionário{detalhe.notaMedia !== null ? ` (nota média geral ${detalhe.notaMedia})` : ''}</h3>
+        {#if detalhe.funcionarios.length}
+          <ul>
+            {#each detalhe.funcionarios as f}<li>{f.nome}: <b>{f.finalizados}</b> finalizados{f.notaMedia !== null ? ` · nota ${f.notaMedia}` : ''}</li>{/each}
+          </ul>
+        {:else}<p class="peq">Nenhum atendimento finalizado com funcionário atribuído.</p>{/if}
+      {/if}
+    </BlocoDash>
   {/if}
 
-  <h2>Últimas movimentações</h2>
-  {#if movimentos.length === 0}
-    <p class="peq">Nenhuma atividade registrada ainda.</p>
-  {:else}
-    <ul class="mov">
-      {#each movimentos as a (a.id)}
-        <li>
-          <b>{rotuloAcao[a.acao] ?? a.acao}</b> <small>{quando(a.em)}</small>
-          {#if a.antes || a.depois}<small>{descreverMudanca(a)}</small>{/if}
-        </li>
-      {/each}
-    </ul>
-    <a class="btn-secundario ver" href="/admin/atividades">Ver todas</a>
-  {/if}
+  <BlocoDash titulo="Últimas movimentações" estado={bMov.estado} erro={bMov.erro} vazio="Nenhuma atividade registrada ainda." aoTentar={() => bMov.carregar()}>
+    {#if bMov.dados}
+      <ul class="mov">
+        {#each bMov.dados as a (a.id)}
+          <li>
+            <b>{rotuloAcao[a.acao] ?? a.acao}</b> <small>{quando(a.em)}</small>
+            {#if a.antes || a.depois}<small>{descreverMudanca(a)}</small>{/if}
+          </li>
+        {/each}
+      </ul>
+      <a class="btn-secundario ver" href="/admin/atividades">Ver todas</a>
+    {/if}
+  </BlocoDash>
 </TelaAdmin>
 
 <style>
