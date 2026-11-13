@@ -109,7 +109,8 @@ export async function criarAgendamento(deps, authorization, corpo) {
   const inicio = inicioDe(entrada.data, entrada.hora);
   if (!inicio) throw new ErroHttp(400, 'Data ou horário inválido.');
   const hoje = hojeLocal(agoraD);
-  const limiteDia = hojeLocal(new Date(agoraD.getTime() + JANELA_DIAS * 86_400_000));
+  // A grade do app mostra hoje + 13 dias (14 dias no total)
+  const limiteDia = hojeLocal(new Date(agoraD.getTime() + (JANELA_DIAS - 1) * 86_400_000));
   if (entrada.data < hoje || entrada.data > limiteDia) {
     throw new ErroHttp(400, `Escolha uma data entre hoje e os próximos ${JANELA_DIAS} dias.`);
   }

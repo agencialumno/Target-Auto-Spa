@@ -153,6 +153,8 @@ test('janela: 18:00 de fechamento, passado, antecedência e 14 dias', async () =
   assert.equal(await status(t.chamar('bia', { data: '2030-01-01', hora: '09:30' })), 0);
   assert.equal(await status(t.chamar('ana', { data: '2029-12-31' })), 400);
   assert.equal(await status(t.chamar('ana', { data: '2030-01-20' })), 400);
+  assert.equal(await status(t.chamar('ana', { data: '2030-01-14' })), 0); // hoje + 13 = último dia da grade (14 dias)
+  assert.equal(await status(t.chamar('bia', { data: '2030-01-15' })), 400); // hoje + 14: a grade não mostra
   assert.equal(await status(t.chamar('ana', { hora: '07:30' })), 400);
   assert.equal(await status(t.chamar('ana', { hora: '09:15' })), 400); // fora da grade de 30 min
 });
