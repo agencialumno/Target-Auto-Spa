@@ -160,7 +160,8 @@ Tudo em `src/web/` e `src/lib/web/`, só existe no build `BUILD_WEB_ADMIN=1`. Ne
 | + condomínio | `condominioId ==` + período | `(condominioId, inicio desc)` | existe |
 | + status + condomínio | os dois + período | `(condominioId, status, inicio desc)` | existe |
 | Filtro de pagamento | feito no navegador | nenhum | evita índice novo |
-| Relatórios (faturamento, serviço, status, funcionário) | a mesma consulta por período | nenhum | calculado no navegador |
+| Relatórios: faturamento por dia, por serviço e por funcionário | `pagamento.status == pago` + `pagamento.pagoEm` no período, orderBy `pagoEm`, `total` | `(pagamento.status, pagamento.pagoEm, total)` - o MESMO do dashboard | existe no arquivo (confirmar que está implantado) |
+| Relatórios: status e atendimentos/nota por funcionário | a consulta de agendamentos por período (acima) | nenhum | calculado no navegador |
 | Relatório de custos | `listarCustos` (existente) | `competencia desc` automático | ok |
 | Mensagens, lista | `chats` orderBy `ultimaHora desc` limit 200 | campo único (automático) | existe |
 | Mensagens, conversa | `chats/{id}/mensagens` orderBy `criadoEm asc` limit 500 | campo único (automático) | existe |
@@ -171,6 +172,7 @@ Regras: o admin já lê `chats` e `chats/{id}/mensagens` (`souAdmin()` nas regra
 
 ### Pontos de atenção
 
-- Faturamento = agendamentos com pagamento "Pago", agrupados pela **data do agendamento** (não pela data do pagamento). Pagamento feito fora do período do agendamento aparece no período do agendamento.
+- Faturamento = só `pagamento.status == pago`, pela **data do pagamento** (`pagamento.pagoEm`), igual ao dashboard; há teste que confirma que os totais batem. Agendamentos por status e atendimentos/nota por funcionário usam a data do **agendamento**; custos, o mês de competência. Cada relatório diz na tela qual data usa.
+- A consulta de documentos dos pagos usa `orderBy(pagoEm, total)` para casar com o índice existente do dashboard. Se o índice ainda não estiver implantado, o relatório mostra o erro `failed-precondition` com o link do console.
 - CSV: separador `;`, BOM para acentos, células iniciadas por `=`, `+`, `-`, `@` (e tab/CR) ganham `'` na frente.
 - Só validável em navegador real, com o projeto Web na Vercel: aparência do CSS nas telas reaproveitadas (largura, cabeçalho), download do CSV, CSP real com o Firebase, login com popup do Google, e o carregamento com dados de produção (volumes e tempos).

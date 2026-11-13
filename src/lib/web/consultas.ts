@@ -71,6 +71,26 @@ export async function listarAgendamentos(
   return { itens: snap.docs.map((d) => lerAgendamento(d.id, d.data())), cortado: snap.size >= TETO_AGENDAMENTOS };
 }
 
+// Pagos do período pela data do PAGAMENTO, igual ao faturamento() do dashboard.
+// Índice EXISTENTE (pagamento.status, pagamento.pagoEm, total): o orderBy('total') no fim faz a consulta de
+// documentos casar com ele (o dashboard usa o mesmo índice com sum('total')).
+export async function listarPagos(de: string, ate: string): Promise<{ itens: Agendamento[]; cortado: boolean }> {
+  const lim = limitesPeriodo(de, ate);
+  if (!lim) throw Object.assign(new Error('Período inválido'), { code: 'periodo-invalido' });
+  const snap = await getDocs(
+    query(
+      collection(db, 'agendamentos'),
+      where('pagamento.status', '==', 'pago'),
+      where('pagamento.pagoEm', '>=', Timestamp.fromDate(lim.inicio)),
+      where('pagamento.pagoEm', '<', Timestamp.fromDate(lim.fim)),
+      orderBy('pagamento.pagoEm', 'asc'),
+      orderBy('total', 'asc'),
+      limit(TETO_AGENDAMENTOS)
+    )
+  );
+  return { itens: snap.docs.map((d) => lerAgendamento(d.id, d.data())), cortado: snap.size >= TETO_AGENDAMENTOS };
+}
+
 export type ConversaLinha = { id: string; clienteNome: string; condominioId: string; ultimaMensagem: string; ultimaHora: Date | null };
 export type MensagemLinha = { id: string; de: string; texto: string; criadoEm: Date | null };
 

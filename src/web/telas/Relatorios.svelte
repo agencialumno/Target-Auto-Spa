@@ -1,6 +1,6 @@
 <script lang="ts">
   // Relatórios por período, calculados no navegador sobre uma consulta de agendamentos + a lista de custos.
-  import { descreverErro, listarAgendamentos, TETO_AGENDAMENTOS } from '$lib/web/consultas';
+  import { descreverErro, listarAgendamentos, listarPagos, TETO_AGENDAMENTOS } from '$lib/web/consultas';
   import { listarCustos } from '$lib/custos-admin';
   import type { Custo } from '$lib/custos';
   import type { Agendamento } from '$lib/agendamentos';
@@ -11,6 +11,7 @@
     desempenhoPorFuncionario,
     faturamentoPorDia,
     faturamentoPorServico,
+    totalFaturamento,
     type Linha
   } from '$lib/web/relatorios';
   import { baixarCsv, paraCsv, reais } from '$lib/web/csv';
@@ -21,6 +22,8 @@
   let ate = $state(local(hoje));
 
   let ags = $state<Agendamento[]>([]);
+  let pagos = $state<Agendamento[]>([]);
+  let cortadoPagos = $state(false);
   let custos = $state<Custo[]>([]);
   let carregando = $state(true);
   let erro = $state('');
@@ -29,12 +32,12 @@
   let geradoDe = $state('');
   let geradoAte = $state('');
 
-  const porDia = $derived(faturamentoPorDia(ags));
-  const porServico = $derived(faturamentoPorServico(ags));
+  const porDia = $derived(faturamentoPorDia(pagos));
+  const porServico = $derived(faturamentoPorServico(pagos));
   const porStatus = $derived(agendamentosPorStatus(ags));
-  const porFunc = $derived(desempenhoPorFuncionario(ags));
+  const porFunc = $derived(desempenhoPorFuncionario(ags, pagos));
   const porCusto = $derived(custosPorCategoria(custos, geradoDe || de, geradoAte || ate));
-  const totalFat = $derived(porDia.reduce((s, l) => s + l.centavos, 0));
+  const totalFat = $derived(totalFaturamento(pagos));
 
   async function carregar() {
     carregando = true;
@@ -42,13 +45,16 @@
     erroCustos = '';
     cortado = false;
     try {
-      const r = await listarAgendamentos({ de, ate, status: '', condominio: '' });
+      const [r, p] = await Promise.all([listarAgendamentos({ de, ate, status: '', condominio: '' }), listarPagos(de, ate)]);
       ags = r.itens;
       cortado = r.cortado;
+      pagos = p.itens;
+      cortadoPagos = p.cortado;
       geradoDe = de;
       geradoAte = ate;
     } catch (e) {
       ags = [];
+      pagos = [];
       erro = (e as { code?: string })?.code === 'periodo-invalido' ? 'Período inválido: confira as datas (de ≤ até).' : descreverErro(e, 'os agendamentos do relatório');
     }
     try {
@@ -73,7 +79,7 @@
     func: () =>
       baixarCsv(
         nome('desempenho_por_funcionario'),
-        paraCsv(['Funcionário', 'Atendimentos', 'Finalizados', 'Faturamento pago (R$)', 'Nota média'], porFunc.map((f) => [f.nome, f.atendimentos, f.finalizados, reais(f.centavos), f.notaMedia ?? '']))
+        paraCsv(['Funcionário', 'Atendimentos', 'Finalizados', 'Faturamento por data do pagamento (R$)', 'Nota média'], porFunc.map((f) => [f.nome, f.atendimentos, f.finalizados, reais(f.centavos), f.notaMedia ?? '']))
       ),
     custo: () => baixarCsv(nome('custos_por_categoria'), paraCsv(['Categoria', 'Custo (R$)'], porCusto.map((l) => [l.rotulo, reais(l.centavos)])))
   };
@@ -85,7 +91,7 @@
   <label>Até <input type="date" bind:value={ate} required /></label>
   <button type="submit" class="aplicar" disabled={carregando}>Gerar</button>
 </form>
-<p class="nota">Valores por data do agendamento. Faturamento considera só agendamentos com pagamento "Pago".</p>
+<p class="nota">Cada relatório diz qual data usa. Faturamento = só pagamentos "Pago", pela data do pagamento (mesmo critério do dashboard).</p>
 
 {#if erro}
   <p class="erro" role="alert">{erro}</p>
@@ -93,13 +99,15 @@
 {:else if carregando}
   <p class="aviso" role="status">Carregando...</p>
 {:else}
+  {#if cortadoPagos}<p class="aviso" role="status">Só os {TETO_AGENDAMENTOS} pagamentos mais antigos do período entraram no faturamento. Reduza o período.</p>{/if}
   {#if cortado}<p class="aviso" role="status">Só os {TETO_AGENDAMENTOS} agendamentos mais recentes do período entraram. Reduza o período.</p>{/if}
   {#if ags.length === 0}<p class="aviso" role="status">Nenhum agendamento no período.</p>{/if}
 
   <section>
     <header><h2>Faturamento por período <small>({brlCentavos(totalFat)})</small></h2><button type="button" class="btn" onclick={exportar.dia}>Exportar CSV</button></header>
     {#if porDia.length === 0}<p class="aviso">Sem faturamento no período.</p>{:else}
-      <table><thead><tr><th>Dia</th><th class="dir">Pagos</th><th class="dir">Faturamento</th></tr></thead>
+      <p class="base">Data usada: data do pagamento (pagamento.pagoEm). Só pagamentos "Pago".</p>
+      <table><thead><tr><th>Dia do pagamento</th><th class="dir">Pagos</th><th class="dir">Faturamento</th></tr></thead>
         <tbody>{#each porDia as l}<tr><td>{l.rotulo.split('-').reverse().join('/')}</td><td class="dir">{l.quantidade}</td><td class="dir">{brlCentavos(l.centavos)}</td></tr>{/each}</tbody></table>
     {/if}
   </section>
@@ -107,6 +115,7 @@
   <section>
     <header><h2>Faturamento por serviço</h2><button type="button" class="btn" onclick={exportar.servico}>Exportar CSV</button></header>
     {#if porServico.length === 0}<p class="aviso">Sem serviços pagos no período.</p>{:else}
+      <p class="base">Data usada: data do pagamento (pagamento.pagoEm). Só pagamentos "Pago".</p>
       <table><thead><tr><th>Serviço</th><th class="dir">Itens</th><th class="dir">Faturamento</th></tr></thead>
         <tbody>{#each porServico as l}<tr><td>{l.rotulo}</td><td class="dir">{l.quantidade}</td><td class="dir">{brlCentavos(l.centavos)}</td></tr>{/each}</tbody></table>
     {/if}
@@ -114,6 +123,7 @@
 
   <section>
     <header><h2>Agendamentos por status</h2><button type="button" class="btn" onclick={exportar.status}>Exportar CSV</button></header>
+    <p class="base">Data usada: data do agendamento (início). Todos os status.</p>
     <table><thead><tr><th>Status</th><th class="dir">Agendamentos</th><th class="dir">Valor</th></tr></thead>
       <tbody>{#each porStatus as l}<tr><td>{l.rotulo}</td><td class="dir">{l.quantidade}</td><td class="dir">{brlCentavos(l.centavos)}</td></tr>{/each}</tbody></table>
   </section>
@@ -121,7 +131,8 @@
   <section>
     <header><h2>Desempenho por funcionário</h2><button type="button" class="btn" onclick={exportar.func}>Exportar CSV</button></header>
     {#if porFunc.length === 0}<p class="aviso">Nenhum atendimento com funcionário no período.</p>{:else}
-      <table><thead><tr><th>Funcionário</th><th class="dir">Atendimentos</th><th class="dir">Finalizados</th><th class="dir">Faturamento pago</th><th class="dir">Nota média</th></tr></thead>
+      <p class="base">Datas usadas: atendimentos, finalizados e nota pela data do agendamento; faturamento pela data do pagamento.</p>
+      <table><thead><tr><th>Funcionário</th><th class="dir">Atendimentos</th><th class="dir">Finalizados</th><th class="dir">Faturamento (data do pagamento)</th><th class="dir">Nota média</th></tr></thead>
         <tbody>{#each porFunc as f}<tr><td>{f.nome}</td><td class="dir">{f.atendimentos}</td><td class="dir">{f.finalizados}</td><td class="dir">{brlCentavos(f.centavos)}</td><td class="dir">{f.notaMedia ?? '—'}</td></tr>{/each}</tbody></table>
     {/if}
   </section>
@@ -133,6 +144,7 @@
     {:else if porCusto.length === 0}
       <p class="aviso">Sem custos no período.</p>
     {:else}
+      <p class="base">Data usada: mês de competência do custo.</p>
       <table><thead><tr><th>Categoria</th><th class="dir">Custo</th></tr></thead>
         <tbody>{#each porCusto as l}<tr><td>{l.rotulo}</td><td class="dir">{brlCentavos(l.centavos)}</td></tr>{/each}</tbody></table>
     {/if}
@@ -157,4 +169,5 @@
   .btn:disabled { opacity: 0.45; }
   .erro { color: #b3261e; }
   .aviso { color: #556; }
+  .base { color: #556; font-size: 0.8rem; margin: 0 0 8px; }
 </style>
