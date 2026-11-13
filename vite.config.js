@@ -1,11 +1,18 @@
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+// Build web do admin: o plugin do Tauri sai do bundle (troca por um stub). Sem a variável, nada muda.
+const WEB = process.env.BUILD_WEB_ADMIN === "1";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [sveltekit()],
+  resolve: WEB
+    ? { alias: { "@tauri-apps/api/core": fileURLToPath(new URL("./src/web/tauri-stub.ts", import.meta.url)) } }
+    : undefined,
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
