@@ -7,6 +7,7 @@ export type Coluna<R> = {
   texto: (r: R) => string;
   chave?: (r: R) => string | number | Date | null; // presente = coluna ordenável
   link?: (r: R) => string;
+  selo?: (r: R) => 'ok' | 'aviso' | 'erro' | ''; // mostra como selo (ok/aviso/erro; vazio = neutro)
   alinhar?: "dir";
 };
 

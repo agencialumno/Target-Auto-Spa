@@ -49,10 +49,10 @@
 </script>
 
 {#if erro}
-  <p class="erro" role="alert">{erro}</p>
-  {#if aoTentarDeNovo}<button type="button" class="btn" onclick={aoTentarDeNovo}>Tentar de novo</button>{/if}
+  <p class="w-erro" role="alert">{erro}</p>
+  {#if aoTentarDeNovo}<button type="button" class="w-btn" onclick={aoTentarDeNovo}>Tentar de novo</button>{/if}
 {:else if carregando}
-  <p class="aviso" role="status">Carregando...</p>
+  <p class="w-aviso" role="status">Carregando...</p>
 {:else if linhas.length === 0}
   <p class="aviso" role="status">{vazio}</p>
 {:else}
@@ -77,7 +77,7 @@
           <tr>
             {#each colunas as c (c.id)}
               <td class:dir={c.alinhar === 'dir'}>
-                {#if c.link}<a href={c.link(r)}>{c.texto(r)}</a>{:else}{c.texto(r)}{/if}
+                {#if c.link}<a href={c.link(r)}>{c.texto(r)}</a>{:else if c.selo}<span class={`w-selo ${c.selo(r)}`}>{c.texto(r)}</span>{:else}{c.texto(r)}{/if}
               </td>
             {/each}
           </tr>
@@ -87,25 +87,23 @@
   </div>
   <nav class="paginas" aria-label="Paginação">
     <span>{pg.total} {pg.total === 1 ? 'registro' : 'registros'} · página {pg.pagina} de {pg.paginas}</span>
-    <button type="button" class="btn" disabled={pg.pagina <= 1} onclick={() => (pagina = pg.pagina - 1)}>Anterior</button>
-    <button type="button" class="btn" disabled={pg.pagina >= pg.paginas} onclick={() => (pagina = pg.pagina + 1)}>Próxima</button>
+    <button type="button" class="w-btn" disabled={pg.pagina <= 1} onclick={() => (pagina = pg.pagina - 1)}>Anterior</button>
+    <button type="button" class="w-btn" disabled={pg.pagina >= pg.paginas} onclick={() => (pagina = pg.pagina + 1)}>Próxima</button>
   </nav>
 {/if}
 
 <style>
-  .rolagem { overflow-x: auto; border: 1px solid #d9dde4; border-radius: 10px; background: #fff; }
+  .rolagem { overflow-x: auto; border: 1px solid var(--card-borda); border-radius: var(--raio); background: var(--folha); }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eceff3; white-space: nowrap; }
-  th { background: #f5f7fa; font-weight: 600; }
-  .dir { text-align: right; }
-  .ord { all: unset; cursor: pointer; font-weight: 600; }
-  .ord:focus-visible { outline: 2px solid #1a73e8; }
-  a { color: inherit; text-decoration: underline; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--card-borda); white-space: nowrap; }
+  th { background: var(--card); color: var(--texto-suave); font-weight: 700; }
+  tbody tr:nth-child(even) { background: var(--info-fundo); }
+  tbody tr:hover { background: var(--card); }
+  .dir { text-align: right; font-variant-numeric: tabular-nums; }
+  .ord { all: unset; cursor: pointer; font-weight: 700; }
+  .ord:focus-visible { outline: 2px solid var(--teal-700); outline-offset: 2px; }
+  a { color: var(--teal-700); font-weight: 600; text-decoration: underline; }
   .paginas { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
-  .paginas span { flex: 1; color: #555; font-size: 0.85rem; }
-  .btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid #c3c9d3; background: #fff; font: inherit; cursor: pointer; }
-  .btn:disabled { opacity: 0.45; cursor: default; }
-  .erro { color: #b3261e; margin: 8px 0; }
-  .aviso { color: #555; margin: 16px 0; }
+  .paginas span { flex: 1; color: var(--texto-suave); font-size: 0.85rem; }
   .sr { position: absolute; left: -9999px; }
 </style>

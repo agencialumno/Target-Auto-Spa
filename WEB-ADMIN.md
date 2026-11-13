@@ -176,3 +176,16 @@ Regras: o admin já lê `chats` e `chats/{id}/mensagens` (`souAdmin()` nas regra
 - A consulta de documentos dos pagos usa `orderBy(pagoEm, total)` para casar com o índice existente do dashboard. Se o índice ainda não estiver implantado, o relatório mostra o erro `failed-precondition` com o link do console.
 - CSV: separador `;`, BOM para acentos, células iniciadas por `=`, `+`, `-`, `@` (e tab/CR) ganham `'` na frente.
 - Só validável em navegador real, com o projeto Web na Vercel: aparência do CSS nas telas reaproveitadas (largura, cabeçalho), download do CSV, CSP real com o Firebase, login com popup do Google, e o carregamento com dados de produção (volumes e tempos).
+
+## 10. Identidade visual
+
+O painel web usa a mesma identidade do app, adaptada a tela larga. Nenhuma cor própria: tudo vem das variáveis de `src/app.css` (o teste `src/web/tema.test.ts` falha se aparecer `#hex`, `rgb()` ou `hsl()` em qualquer CSS do painel, ou variável que não exista).
+
+- **Login** (`CartaoLogin.svelte`): fundo `linear-gradient(160deg, --navy-900, --navy-700)`, card `--superficie` com borda `--superficie-borda` e raio `--raio-grande`, logo oficial (`logo.png`, alt "Grupo Target Auto Spa"; é dourado/prata com fundo transparente, legível no escuro) e o botão `.btn-primario` do app (dourado). Erro em `--erro-vivo`; foco com contorno `--gold-100`.
+- **Moldura** (`Shell.svelte`): barra lateral `--navy-900` com símbolo + nome, item ativo `--gold-500`/`--navy-900`, hover `--superficie`, rodapé com usuário e Sair. Conteúdo sobre o mesmo gradiente do app, com a "folha" clara (`TelaWeb.svelte` para as telas novas; as telas reaproveitadas do app já trazem a sua).
+- **Tabelas** (`Tabela.svelte`) e telas: cabeçalho `--card`, zebra `--info-fundo`, hover `--card`, selos ok/aviso/erro com `--ok-*`, `--aviso-*`, `--erro`; classes compartilhadas em `src/web/web.css` (só carregado na web).
+- **Aba**: título "Target Auto Spa · Painel", favicon 32x32 e apple-touch 180x180 gerados do `simbolo.png` (`src/web/assets/`; o `static/favicon.png` do app não foi tocado) e `theme-color` `#0d0f12`, num modelo HTML próprio do web (`src/web/app.html`, que também libera o zoom, ao contrário do do app).
+- **Responsivo**: abaixo de 900px a barra lateral vira barra superior com botão Menu (recolhe ao trocar de tela). Tabelas rolam na horizontal.
+- **Dev**: `npm run dev:web` (servidor de desenvolvimento do modo web).
+- **Capturas** em `docs-web/` (login, tela larga e tablet; a tela larga e o tablet usam dados fictícios, pois o dashboard real exige login de admin).
+- Nota: no `vite dev` (modo web) o login falhou em teste manual com "Component auth has not been registered yet" (causa não investigada); no build (`build:web` + `vite preview`) a tela de login carrega normalmente.

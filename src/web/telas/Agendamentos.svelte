@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TelaWeb from '../TelaWeb.svelte';
   // Tabela de agendamentos (modo "agendamentos") e de pagamentos (modo "pagamentos"): mesma consulta,
   // colunas e filtros diferentes. Período, status e condomínio vão na consulta; pagamento é filtrado aqui.
   import Tabela from '../Tabela.svelte';
@@ -30,17 +31,23 @@
   const lista = $derived(filtrarPorPagamento(base, pagamento));
   const dataHora = (a: Agendamento) => `${a.data.split('-').reverse().join('/')} ${a.hora}`;
 
+  const seloStatus = (a: Agendamento) => (a.status === 'finalizado' ? 'ok' : a.status === 'em_andamento' ? 'aviso' : a.status === 'cancelado' ? 'erro' : '');
+  const seloPag = (a: Agendamento) => {
+    const s = situacaoPagamento(a);
+    return s === 'pago' ? 'ok' : s === 'pendente' || s === 'sem' || s === 'vencido' ? 'aviso' : s === 'nenhuma' ? '' : 'erro';
+  };
+
   const colAg: Coluna<Agendamento>[] = [
     { id: 'quando', titulo: 'Data', texto: dataHora, chave: (a) => a.inicio, link: (a) => `/admin/agendamentos/${a.id}` },
     { id: 'cliente', titulo: 'Cliente', texto: (a) => a.clienteNome, chave: (a) => a.clienteNome },
     { id: 'servico', titulo: 'Serviços', texto: (a) => nomesItens(a.itens) },
     { id: 'cond', titulo: 'Condomínio', texto: (a) => nomeCond(a.condominioId), chave: (a) => nomeCond(a.condominioId) },
-    { id: 'status', titulo: 'Status', texto: (a) => rotuloStatus[a.status] ?? a.status, chave: (a) => a.status },
-    { id: 'pag', titulo: 'Pagamento', texto: (a) => rotuloPagamento[situacaoPagamento(a)] || '—', chave: (a) => situacaoPagamento(a) },
+    { id: 'status', titulo: 'Status', texto: (a) => rotuloStatus[a.status] ?? a.status, chave: (a) => a.status, selo: seloStatus },
+    { id: 'pag', titulo: 'Pagamento', texto: (a) => rotuloPagamento[situacaoPagamento(a)] || '—', chave: (a) => situacaoPagamento(a), selo: seloPag },
     { id: 'total', titulo: 'Valor', texto: (a) => brlCentavos(a.total), chave: (a) => a.total, alinhar: 'dir' }
   ];
   const colPag: Coluna<Agendamento>[] = [
-    { id: 'pag', titulo: 'Status', texto: (a) => rotuloPagamento[situacaoPagamento(a)] || '—', chave: (a) => situacaoPagamento(a) },
+    { id: 'pag', titulo: 'Status', texto: (a) => rotuloPagamento[situacaoPagamento(a)] || '—', chave: (a) => situacaoPagamento(a), selo: seloPag },
     { id: 'total', titulo: 'Valor', texto: (a) => brlCentavos(a.total), chave: (a) => a.total, alinhar: 'dir' },
     {
       id: 'data',
@@ -73,25 +80,25 @@
   });
 </script>
 
-<h1>{modo === 'pagamentos' ? 'Pagamentos' : 'Agendamentos'}</h1>
-<form class="filtros" onsubmit={(e) => { e.preventDefault(); carregar(); }}>
-  <label>De <input type="date" bind:value={de} required /></label>
-  <label>Até <input type="date" bind:value={ate} required /></label>
-  <label>
+<TelaWeb titulo={modo === 'pagamentos' ? 'Pagamentos' : 'Agendamentos'}>
+<form class="w-filtros" onsubmit={(e) => { e.preventDefault(); carregar(); }}>
+  <label class="w-campo">De <input type="date" bind:value={de} required /></label>
+  <label class="w-campo">Até <input type="date" bind:value={ate} required /></label>
+  <label class="w-campo">
     Status do agendamento
     <select bind:value={status}>
       <option value="">Todos</option>
       {#each Object.entries(rotuloStatus) as [id, nome]}<option value={id}>{nome}</option>{/each}
     </select>
   </label>
-  <label>
+  <label class="w-campo">
     Condomínio
     <select bind:value={condominio}>
       <option value="">Todos</option>
       {#each condominios as c (c.id)}<option value={c.id}>{c.nome}</option>{/each}
     </select>
   </label>
-  <label>
+  <label class="w-campo">
     Pagamento
     <select bind:value={pagamento}>
       <option value="">Todos</option>
@@ -101,9 +108,9 @@
       <option value="sem">Sem pagamento</option>
     </select>
   </label>
-  <button type="submit" class="aplicar" disabled={carregando}>Aplicar</button>
+  <button type="submit" class="btn-primario w-btn-primario" disabled={carregando}>Aplicar</button>
 </form>
-{#if cortado}<p class="aviso" role="status">Mostrando só os {TETO_AGENDAMENTOS} mais recentes do período. Reduza o período para ver tudo.</p>{/if}
+{#if cortado}<p class="w-alerta" role="status">Mostrando só os {TETO_AGENDAMENTOS} mais recentes do período. Reduza o período para ver tudo.</p>{/if}
 <Tabela
   colunas={modo === 'pagamentos' ? colPag : colAg}
   linhas={lista}
@@ -114,13 +121,4 @@
   vazio={modo === 'pagamentos' ? 'Nenhum pagamento neste período e filtros.' : 'Nenhum agendamento neste período e filtros.'}
   legenda={modo === 'pagamentos' ? 'Pagamentos' : 'Agendamentos'}
 />
-
-<style>
-  h1 { margin: 0 0 16px; font-size: 1.5rem; }
-  .filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-bottom: 16px; }
-  label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: #445; }
-  input, select { min-height: 36px; padding: 0 10px; font: inherit; border: 1px solid #c3c9d3; border-radius: 8px; background: #fff; }
-  .aplicar { min-height: 36px; padding: 0 18px; border-radius: 8px; border: 0; background: #0d1b2e; color: #fff; font: inherit; cursor: pointer; }
-  .aplicar:disabled { opacity: 0.5; }
-  .aviso { color: #7a5b00; }
-</style>
+</TelaWeb>

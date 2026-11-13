@@ -2,6 +2,9 @@
   import '@fontsource-variable/plus-jakarta-sans';
   import '../../app.css';
   import '$lib/painel.css';
+  import '../web.css';
+  import favicon from '../assets/favicon-32.png';
+  import appleTouch from '../assets/apple-touch-icon.png';
   import { authStore } from '$lib/auth.svelte';
   import { app } from '$lib/app.svelte';
   import { iniciarCatalogo, pararCatalogo } from '$lib/catalogo.svelte';
@@ -24,7 +27,9 @@
 
 <svelte:head>
   <meta name="robots" content="noindex, nofollow" />
-  <title>Target Auto Spa | Admin</title>
+  <title>Target Auto Spa · Painel</title>
+  <link rel="icon" type="image/png" sizes="32x32" href={favicon} />
+  <link rel="apple-touch-icon" sizes="180x180" href={appleTouch} />
 </svelte:head>
 
 {@render children()}

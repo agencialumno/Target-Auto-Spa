@@ -1,0 +1,48 @@
+/* Estilos só do painel web (importado só pelo layout web). Toda cor vem das variáveis de src/app.css. */
+.w-filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-bottom: 16px; }
+.w-campo { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 600; color: var(--texto-suave); }
+.w-campo input,
+.w-campo select {
+  min-height: 40px;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--texto);
+  background: var(--folha);
+  border: 1px solid var(--card-borda);
+  border-radius: 12px;
+}
+.w-btn-primario,
+.w-btn {
+  width: auto;
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 0.9rem;
+  border-radius: 12px;
+}
+.w-btn-primario { background: var(--gold-500); color: var(--navy-900); font-weight: 700; }
+.w-btn { background: var(--folha); color: var(--texto); border: 1px solid var(--card-borda); font-weight: 600; }
+.w-btn:disabled,
+.w-btn-primario:disabled { opacity: 0.5; cursor: default; }
+.w-aviso { color: var(--texto-suave); margin: 12px 0; }
+.w-alerta { color: var(--aviso-texto); background: var(--aviso-fundo); padding: 8px 12px; border-radius: 12px; margin: 0 0 12px; }
+.w-erro { color: var(--erro); margin: 8px 0; }
+.w-nota { color: var(--texto-suave); font-size: 0.85rem; margin: 0 0 16px; }
+.w-card { background: var(--card); border: 1px solid var(--card-borda); border-radius: var(--raio); padding: 16px; margin-bottom: 16px; }
+.w-card-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.w-card-topo h2 { font-size: 1.05rem; }
+.w-card-topo small { font-weight: 400; color: var(--texto-suave); }
+.w-tabela { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.w-tabela th,
+.w-tabela td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--card-borda); }
+.w-tabela th { color: var(--texto-suave); font-weight: 700; }
+.w-tabela .dir { text-align: right; }
+.w-selo { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; background: var(--info-fundo); color: var(--teal-700); }
+.w-selo.ok { background: var(--ok-fundo); color: var(--ok-texto); }
+.w-selo.aviso { background: var(--aviso-fundo); color: var(--aviso-texto); }
+.w-selo.erro { background: var(--erro); color: var(--white); }
+.w-foco:focus-visible,
+.w-campo input:focus-visible,
+.w-campo select:focus-visible,
+.w-btn:focus-visible,
+.w-btn-primario:focus-visible { outline: 2px solid var(--teal-700); outline-offset: 2px; }
